@@ -28,7 +28,10 @@ func (m *MockedStorage) DeleteMetric(name string) error {
 	return nil
 }
 
-func (m *MockedStorage) ListMetrics() []string {
+func (m *MockedStorage) ListMetrics() []struct {
+	Name  string
+	Value interface{}
+} {
 	// Просто заглушка
 	return nil
 }

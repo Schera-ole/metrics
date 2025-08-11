@@ -16,7 +16,10 @@ type Repository interface {
 	SetMetric(name string, value interface{}, typ string) error
 	GetMetric(name string) (interface{}, error)
 	DeleteMetric(name string) error
-	ListMetrics() []string
+	ListMetrics() []struct {
+		Name  string
+		Value interface{}
+	}
 }
 
 func NewMemStorage() *MemStorage {
@@ -51,12 +54,33 @@ func (ms *MemStorage) DeleteMetric(name string) error {
 	return nil
 }
 
-func (ms *MemStorage) ListMetrics() []string {
-	var metrics []string
-	for k := range ms.types {
-		metrics = append(metrics, k)
+func (ms *MemStorage) ListMetrics() []struct {
+	Name  string
+	Value interface{}
+} {
+	result := make([]struct {
+		Name  string
+		Value interface{}
+	}, 0)
+
+	for name, typ := range ms.types {
+		var value interface{}
+
+		switch typ {
+		case config.GaugeType:
+			value = ms.gauges[name]
+		case config.CounterType:
+			value = ms.counters[name]
+		default:
+			continue
+		}
+
+		result = append(result, struct {
+			Name  string
+			Value interface{}
+		}{Name: name, Value: value})
 	}
-	return metrics
+	return result
 }
 
 func (ms *MemStorage) GetMetric(name string) (interface{}, error) {
