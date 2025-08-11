@@ -1,11 +1,13 @@
 package handler
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 type MockedStorage struct {
@@ -38,6 +40,9 @@ func (m *MockedStorage) ListMetrics() []struct {
 
 func TestUpdateHandler(t *testing.T) {
 	url := "http://localhost:8080"
+	ts := httptest.NewServer(Router())
+	defer ts.Close()
+
 	tests := []struct {
 		name       string
 		endpoint   string
@@ -76,13 +81,23 @@ func TestUpdateHandler(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			r := httptest.NewRequest(tt.method, url+tt.endpoint, nil)
-			w := httptest.NewRecorder()
+		fmt.Print(url + tt.endpoint)
 
-			mockStorage := &MockedStorage{}
-			UpdateHandler(w, r, mockStorage)
-			assert.Equal(t, tt.statusCode, w.Code)
+		t.Run(tt.name, func(t *testing.T) {
+			r := testRequest(t, ts, tt.method, tt.endpoint)
+			assert.Equal(t, tt.statusCode, r.StatusCode)
 		})
 	}
+}
+
+func testRequest(t *testing.T, ts *httptest.Server, method,
+	path string) *http.Response {
+	req, err := http.NewRequest(method, ts.URL+path, nil)
+	require.NoError(t, err)
+
+	resp, err := ts.Client().Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	return resp
 }

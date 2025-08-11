@@ -11,11 +11,25 @@ import (
 	"github.com/go-chi/chi/v5"
 )
 
+func Router() chi.Router {
+	storage := repository.NewMemStorage()
+	router := chi.NewRouter()
+	router.Post("/update/{type}/{metric}/{value}", func(w http.ResponseWriter, r *http.Request) {
+		UpdateHandler(w, r, storage)
+	})
+	router.Get("/value/{type}/{name}", func(w http.ResponseWriter, r *http.Request) {
+		GetHandler(w, r, storage)
+	})
+	router.Get("/", func(w http.ResponseWriter, r *http.Request) {
+		GetListHandler(w, r, storage)
+	})
+	return router
+}
+
 func UpdateHandler(w http.ResponseWriter, r *http.Request, storage repository.Repository) {
 	metricType := chi.URLParam(r, "type")
 	metricName := chi.URLParam(r, "metric")
 	metricValue := chi.URLParam(r, "value")
-
 	if metricName == "" {
 		http.Error(w, "Metric name not found ", http.StatusNotFound)
 		return
