@@ -2,6 +2,7 @@ package handler
 
 import (
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -84,20 +85,22 @@ func TestUpdateHandler(t *testing.T) {
 		fmt.Print(url + tt.endpoint)
 
 		t.Run(tt.name, func(t *testing.T) {
-			r := testRequest(t, ts, tt.method, tt.endpoint)
+			r, _ := testRequest(t, ts, tt.method, tt.endpoint)
 			assert.Equal(t, tt.statusCode, r.StatusCode)
 		})
 	}
 }
 
 func testRequest(t *testing.T, ts *httptest.Server, method,
-	path string) *http.Response {
+	path string) (*http.Response, string) {
 	req, err := http.NewRequest(method, ts.URL+path, nil)
 	require.NoError(t, err)
 
 	resp, err := ts.Client().Do(req)
 	require.NoError(t, err)
 	defer resp.Body.Close()
+	respBody, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
 
-	return resp
+	return resp, string(respBody)
 }
