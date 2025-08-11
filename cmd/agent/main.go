@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"io"
+	"log"
 	"math/rand"
 	"net/http"
 	"os"
@@ -59,11 +60,17 @@ func sendMetrics(metrics []agent.Metric, url string) error {
 
 func main() {
 	var metrics []agent.Metric
-	for {
-		metrics = collectMetrics()
-		if time.Now().Second()%int(reportInterval) == 0 {
-			sendMetrics(metrics, url)
+	go func() {
+		for {
+			metrics = collectMetrics()
+			time.Sleep(pollInterval)
 		}
-		time.Sleep(pollInterval)
+	}()
+	for {
+		err := sendMetrics(metrics, url)
+		if err != nil {
+			log.Fatal(err)
+		}
+		time.Sleep(reportInterval)
 	}
 }
