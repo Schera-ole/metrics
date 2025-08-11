@@ -13,7 +13,7 @@ import (
 
 func UpdateHandler(w http.ResponseWriter, r *http.Request, storage repository.Repository) {
 	metricType := chi.URLParam(r, "type")
-	metricName := chi.URLParam(r, "name")
+	metricName := chi.URLParam(r, "metric")
 	metricValue := chi.URLParam(r, "value")
 
 	if metricName == "" {

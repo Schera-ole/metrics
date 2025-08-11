@@ -86,7 +86,7 @@ func (ms *MemStorage) ListMetrics() []struct {
 func (ms *MemStorage) GetMetric(name string) (interface{}, error) {
 	metricType, exists := ms.types[name]
 	if !exists {
-		return nil, errors.New("Metric is not found")
+		return nil, errors.New("metric is not found")
 	}
 	switch metricType {
 	case config.GaugeType:
@@ -94,6 +94,6 @@ func (ms *MemStorage) GetMetric(name string) (interface{}, error) {
 	case config.CounterType:
 		return ms.counters[name], nil
 	default:
-		return nil, errors.New("Unknown type of metric")
+		return nil, errors.New("unknown type of metric")
 	}
 }
