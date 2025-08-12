@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"io"
 	"log"
@@ -16,10 +17,7 @@ import (
 )
 
 var (
-	pollInterval   = 2 * time.Second
-	reportInterval = 10 * time.Second
-	url            = "http://localhost:8080/update"
-	counter        int64
+	counter int64
 )
 
 func collectMetrics() []agent.Metric {
@@ -59,11 +57,16 @@ func sendMetrics(metrics []agent.Metric, url string) error {
 }
 
 func main() {
+	reportInterval := flag.Int("r", 10, "The frequency of sending metrics to the server")
+	pollInterval := flag.Int("p", 2, "The frequency of polling metrics from the package")
+	address := flag.String("a", "http://localhost:8080", "Address for sending metrics")
+	flag.Parse()
+	url := *address + "/update"
 	var metrics []agent.Metric
 	go func() {
 		for {
 			metrics = collectMetrics()
-			time.Sleep(pollInterval)
+			time.Sleep(time.Duration(*pollInterval) * time.Second)
 		}
 	}()
 	for {
@@ -71,6 +74,6 @@ func main() {
 		if err != nil {
 			log.Fatal(err)
 		}
-		time.Sleep(reportInterval)
+		time.Sleep(time.Duration(*reportInterval) * time.Second)
 	}
 }
