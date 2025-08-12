@@ -59,7 +59,7 @@ func sendMetrics(metrics []agent.Metric, url string) error {
 func main() {
 	reportInterval := flag.Int("r", 10, "The frequency of sending metrics to the server")
 	pollInterval := flag.Int("p", 2, "The frequency of polling metrics from the package")
-	address := flag.String("a", "http://localhost:8080", "Address for sending metrics")
+	address := flag.String("a", "localhost:8080", "Address for sending metrics")
 	flag.Parse()
 	url := *address + "/update"
 	var metrics []agent.Metric
