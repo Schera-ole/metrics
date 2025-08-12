@@ -30,7 +30,6 @@ func UpdateHandler(w http.ResponseWriter, r *http.Request, storage repository.Re
 	metricType := chi.URLParam(r, "type")
 	metricName := chi.URLParam(r, "metric")
 	metricValue := chi.URLParam(r, "value")
-	fmt.Println("Hello, World!")
 	if metricName == "" {
 		http.Error(w, "Metric name not found ", http.StatusNotFound)
 		return
@@ -70,7 +69,7 @@ func GetHandler(w http.ResponseWriter, r *http.Request, storage repository.Repos
 		http.Error(w, "Metric name not found ", http.StatusNotFound)
 		return
 	}
-	fmt.Fprintf(w, "Metric '%s': %v\n", metricName, metricValue)
+	fmt.Fprintf(w, "%v", metricValue)
 	w.WriteHeader(http.StatusOK)
 }
 
