@@ -61,7 +61,7 @@ func main() {
 	pollInterval := flag.Int("p", 2, "The frequency of polling metrics from the package")
 	address := flag.String("a", "localhost:8080", "Address for sending metrics")
 	flag.Parse()
-	url := *address + "/update"
+	url := "http://" + *address + "/update"
 	var metrics []agent.Metric
 	go func() {
 		for {
