@@ -70,7 +70,6 @@ func GetHandler(w http.ResponseWriter, r *http.Request, storage repository.Repos
 		return
 	}
 	fmt.Fprintf(w, "%v", metricValue)
-	w.WriteHeader(http.StatusOK)
 }
 
 func GetListHandler(w http.ResponseWriter, r *http.Request, storage repository.Repository) {
