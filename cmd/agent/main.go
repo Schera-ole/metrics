@@ -78,7 +78,7 @@ func main() {
 	// 	}
 	// 	time.Sleep(time.Duration(*reportInterval) * time.Second)
 	// }
-	metricsCh := make(chan []agent.Metric, 1)
+	metricsCh := make(chan []agent.Metric, 10)
 	go func() {
 		for {
 			metricsCh <- collectMetrics(counter)
