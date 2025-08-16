@@ -67,9 +67,7 @@ func main() {
 	metricsCh := make(chan []agent.Metric, 1)
 	go func() {
 		for {
-			metricsCopy := append([]agent.Metric{}, collectMetrics(counter)...)
-			metricsCh <- metricsCopy
-			// metricsCh <- collectMetrics(counter)
+			metricsCh <- collectMetrics(counter)
 			time.Sleep(time.Duration(*pollInterval) * time.Second)
 		}
 	}()
