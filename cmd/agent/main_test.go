@@ -10,7 +10,8 @@ import (
 )
 
 func TestCollectMetrics(t *testing.T) {
-	metrics := collectMetrics()
+	counter := &Counter{Value: 0}
+	metrics := collectMetrics(counter)
 	require.NotEmpty(t, metrics)
 	for i, m := range metrics {
 		t.Logf("Checking metric #%d: Name='%s', Type='%s', Value='%v'", i, m.Name, m.Type, m.Value)
@@ -25,8 +26,8 @@ func TestSendMetric(t *testing.T) {
 		assert.Equal(t, "text/plain", r.Header.Get("Content-Type"))
 	}))
 	defer server.Close()
-
-	metrics := collectMetrics()
+	counter := &Counter{Value: 0}
+	metrics := collectMetrics(counter)
 	err := sendMetrics(metrics, server.URL+"/update")
 	require.NoError(t, err)
 }
