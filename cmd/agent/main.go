@@ -64,20 +64,6 @@ func main() {
 	flag.Parse()
 	url := "http://" + *address + "/update"
 	counter := &Counter{Value: 0}
-	// var metrics []agent.Metric
-	// go func() {
-	// 	for {
-	// 		metrics = collectMetrics(counter)
-	// 		time.Sleep(time.Duration(*pollInterval) * time.Second)
-	// 	}
-	// }()
-	// for {
-	// 	err := sendMetrics(metrics, url)
-	// 	if err != nil {
-	// 		log.Fatal(err)
-	// 	}
-	// 	time.Sleep(time.Duration(*reportInterval) * time.Second)
-	// }
 	metricsCh := make(chan []agent.Metric, 10)
 	go func() {
 		for {
