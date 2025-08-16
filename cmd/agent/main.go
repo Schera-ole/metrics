@@ -40,7 +40,9 @@ func collectMetrics(counter *Counter) []agent.Metric {
 
 func sendMetrics(metrics []agent.Metric, url string) error {
 	for _, metric := range metrics {
-		client := &http.Client{}
+		client := &http.Client{
+			Timeout: 60 * time.Second,
+		}
 		endpoint := fmt.Sprintf("%s/%s/%s/%v", url, metric.Type, metric.Name, metric.Value)
 		request, err := http.NewRequest(http.MethodPost, endpoint, nil)
 		if err != nil {

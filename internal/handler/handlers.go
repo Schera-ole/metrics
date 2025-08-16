@@ -29,6 +29,9 @@ func UpdateHandler(w http.ResponseWriter, r *http.Request, storage repository.Re
 	metricType := chi.URLParam(r, "type")
 	metricName := chi.URLParam(r, "metric")
 	metricValue := chi.URLParam(r, "value")
+	fmt.Print(metricName)
+	fmt.Print("\n")
+	fmt.Print(metricValue)
 	if metricName == "" {
 		http.Error(w, "Metric name not found ", http.StatusNotFound)
 		return
