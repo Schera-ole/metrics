@@ -40,9 +40,7 @@ func collectMetrics(counter *Counter) []agent.Metric {
 
 func sendMetrics(metrics []agent.Metric, url string) error {
 	for _, metric := range metrics {
-		client := &http.Client{
-			Timeout: 60 * time.Second,
-		}
+		client := &http.Client{}
 		endpoint := fmt.Sprintf("%s/%s/%s/%v", url, metric.Type, metric.Name, metric.Value)
 		request, err := http.NewRequest(http.MethodPost, endpoint, nil)
 		if err != nil {
@@ -66,19 +64,33 @@ func main() {
 	flag.Parse()
 	url := "http://" + *address + "/update"
 	counter := &Counter{Value: 0}
-	metricsCh := make(chan []agent.Metric, 1)
+	var metrics []agent.Metric
 	go func() {
 		for {
-			metricsCh <- collectMetrics(counter)
+			metrics = collectMetrics(counter)
 			time.Sleep(time.Duration(*pollInterval) * time.Second)
 		}
 	}()
 	for {
-		metrics := <-metricsCh
 		err := sendMetrics(metrics, url)
 		if err != nil {
 			log.Fatal(err)
 		}
 		time.Sleep(time.Duration(*reportInterval) * time.Second)
 	}
+	// metricsCh := make(chan []agent.Metric, 1)
+	// go func() {
+	// 	for {
+	// 		metricsCh <- collectMetrics(counter)
+	// 		time.Sleep(time.Duration(*pollInterval) * time.Second)
+	// 	}
+	// }()
+	// for {
+	// 	metrics := <-metricsCh
+	// 	err := sendMetrics(metrics, url)
+	// 	if err != nil {
+	// 		log.Fatal(err)
+	// 	}
+	// 	time.Sleep(time.Duration(*reportInterval) * time.Second)
+	// }
 }
