@@ -3,7 +3,7 @@ package agent
 type Metric struct {
 	Name  string
 	Type  string
-	Value interface{}
+	Value any
 }
 
 var (

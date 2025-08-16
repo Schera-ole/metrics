@@ -29,11 +29,12 @@ func collectMetrics(counter *Counter) []agent.Metric {
 	for _, metric := range agent.RuntimeMetrics {
 		field, _ := msType.FieldByName(metric)
 		value := msValue.FieldByName(metric)
-		metrics = append(metrics, agent.Metric{Name: field.Name, Type: config.GaugeType, Value: value})
+		metrics = append(metrics, agent.Metric{Name: field.Name, Type: config.GaugeType, Value: value.Interface()})
 	}
 	counter.Value += 1
-	metrics = append(metrics, agent.Metric{Name: "RandomValue", Type: config.GaugeType, Value: rand.Float64})
-	metrics = append(metrics, agent.Metric{Name: "PollCount", Type: config.CounterType, Value: counter})
+	metrics = append(metrics, agent.Metric{Name: "RandomValue", Type: config.GaugeType, Value: rand.Float64()})
+	metrics = append(metrics, agent.Metric{Name: "PollCount", Type: config.CounterType, Value: counter.Value})
+
 	return metrics
 }
 
@@ -66,7 +67,9 @@ func main() {
 	metricsCh := make(chan []agent.Metric, 1)
 	go func() {
 		for {
-			metricsCh <- collectMetrics(counter)
+			metricsCopy := append([]agent.Metric{}, collectMetrics(counter)...)
+			metricsCh <- metricsCopy
+			// metricsCh <- collectMetrics(counter)
 			time.Sleep(time.Duration(*pollInterval) * time.Second)
 		}
 	}()
