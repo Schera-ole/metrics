@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/Schera-ole/metrics/internal/repository"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -40,7 +41,8 @@ func (m *MockedStorage) ListMetrics() []struct {
 
 func TestUpdateHandler(t *testing.T) {
 	url := "http://localhost:8080"
-	ts := httptest.NewServer(Router())
+	storage := repository.NewMemStorage()
+	ts := httptest.NewServer(Router(storage))
 	defer ts.Close()
 
 	tests := []struct {

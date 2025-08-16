@@ -11,8 +11,7 @@ import (
 	"github.com/go-chi/chi/v5"
 )
 
-func Router() chi.Router {
-	storage := repository.NewMemStorage()
+func Router(storage *repository.MemStorage) chi.Router {
 	router := chi.NewRouter()
 	router.Post("/update/{type}/{metric}/{value}", func(w http.ResponseWriter, r *http.Request) {
 		UpdateHandler(w, r, storage)
@@ -34,7 +33,7 @@ func UpdateHandler(w http.ResponseWriter, r *http.Request, storage repository.Re
 		http.Error(w, "Metric name not found ", http.StatusNotFound)
 		return
 	}
-	var Metric interface{}
+	var Metric any
 	switch metricType {
 	case config.GaugeType:
 		floatVal, floatErr := strconv.ParseFloat(metricValue, 64)

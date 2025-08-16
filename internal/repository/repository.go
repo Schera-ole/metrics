@@ -13,12 +13,12 @@ type MemStorage struct {
 }
 
 type Repository interface {
-	SetMetric(name string, value interface{}, typ string) error
-	GetMetric(name string) (interface{}, error)
+	SetMetric(name string, value any, typ string) error
+	GetMetric(name string) (any, error)
 	DeleteMetric(name string) error
 	ListMetrics() []struct {
 		Name  string
-		Value interface{}
+		Value any
 	}
 }
 
@@ -30,7 +30,7 @@ func NewMemStorage() *MemStorage {
 	}
 }
 
-func (ms *MemStorage) SetMetric(name string, value interface{}, typ string) error {
+func (ms *MemStorage) SetMetric(name string, value any, typ string) error {
 	switch value := value.(type) {
 	case float64:
 		ms.gauges[name] = value
@@ -56,15 +56,15 @@ func (ms *MemStorage) DeleteMetric(name string) error {
 
 func (ms *MemStorage) ListMetrics() []struct {
 	Name  string
-	Value interface{}
+	Value any
 } {
 	result := make([]struct {
 		Name  string
-		Value interface{}
+		Value any
 	}, 0)
 
 	for name, typ := range ms.types {
-		var value interface{}
+		var value any
 
 		switch typ {
 		case config.GaugeType:
@@ -77,13 +77,13 @@ func (ms *MemStorage) ListMetrics() []struct {
 
 		result = append(result, struct {
 			Name  string
-			Value interface{}
+			Value any
 		}{Name: name, Value: value})
 	}
 	return result
 }
 
-func (ms *MemStorage) GetMetric(name string) (interface{}, error) {
+func (ms *MemStorage) GetMetric(name string) (any, error) {
 	metricType, exists := ms.types[name]
 	if !exists {
 		return nil, errors.New("metric is not found")

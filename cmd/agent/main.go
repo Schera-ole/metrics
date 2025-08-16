@@ -16,11 +16,11 @@ import (
 	"github.com/Schera-ole/metrics/internal/config"
 )
 
-var (
-	counter int64
-)
+type Counter struct {
+	Value int64
+}
 
-func collectMetrics() []agent.Metric {
+func collectMetrics(counter *Counter) []agent.Metric {
 	var metrics []agent.Metric
 	var MemStats runtime.MemStats
 	runtime.ReadMemStats(&MemStats)
@@ -31,7 +31,7 @@ func collectMetrics() []agent.Metric {
 		value := msValue.FieldByName(metric)
 		metrics = append(metrics, agent.Metric{Name: field.Name, Type: config.GaugeType, Value: value})
 	}
-	counter += 1
+	counter.Value += 1
 	metrics = append(metrics, agent.Metric{Name: "RandomValue", Type: config.GaugeType, Value: rand.Float64})
 	metrics = append(metrics, agent.Metric{Name: "PollCount", Type: config.CounterType, Value: counter})
 	return metrics
@@ -43,12 +43,12 @@ func sendMetrics(metrics []agent.Metric, url string) error {
 		endpoint := fmt.Sprintf("%s/%s/%s/%v", url, metric.Type, metric.Name, metric.Value)
 		request, err := http.NewRequest(http.MethodPost, endpoint, nil)
 		if err != nil {
-			panic(err)
+			return fmt.Errorf("error creating request for %s", endpoint)
 		}
 		request.Header.Set("Content-Type", "text/plain")
 		response, err := client.Do(request)
 		if err != nil {
-			panic(err)
+			return fmt.Errorf("error sending request for %s", endpoint)
 		}
 		io.Copy(os.Stdout, response.Body)
 		response.Body.Close()
@@ -62,14 +62,16 @@ func main() {
 	address := flag.String("a", "localhost:8080", "Address for sending metrics")
 	flag.Parse()
 	url := "http://" + *address + "/update"
-	var metrics []agent.Metric
+	counter := &Counter{Value: 0}
+	metricsCh := make(chan []agent.Metric, 1)
 	go func() {
 		for {
-			metrics = collectMetrics()
+			metricsCh <- collectMetrics(counter)
 			time.Sleep(time.Duration(*pollInterval) * time.Second)
 		}
 	}()
 	for {
+		metrics := <-metricsCh
 		err := sendMetrics(metrics, url)
 		if err != nil {
 			log.Fatal(err)
