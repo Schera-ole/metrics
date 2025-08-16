@@ -86,10 +86,14 @@ func main() {
 		}
 	}()
 	for {
-		metrics := <-metricsCh
-		err := sendMetrics(metrics, url)
-		if err != nil {
-			log.Fatal(err)
+		select {
+		case metrics := <-metricsCh:
+			err := sendMetrics(metrics, url)
+			if err != nil {
+				log.Fatal(err)
+			}
+		default:
+			// при пустом - ничего не делаем.
 		}
 		time.Sleep(time.Duration(*reportInterval) * time.Second)
 	}
