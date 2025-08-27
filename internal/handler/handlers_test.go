@@ -6,6 +6,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"go.uber.org/zap"
+
 	"github.com/Schera-ole/metrics/internal/repository"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -42,7 +44,10 @@ func (m *MockedStorage) ListMetrics() []struct {
 func TestUpdateHandler(t *testing.T) {
 	url := "http://localhost:8080"
 	storage := repository.NewMemStorage()
-	ts := httptest.NewServer(Router(storage))
+	logger, _ := zap.NewDevelopment()
+	defer logger.Sync()
+	log_sugar := logger.Sugar()
+	ts := httptest.NewServer(Router(storage, log_sugar))
 	defer ts.Close()
 
 	tests := []struct {
