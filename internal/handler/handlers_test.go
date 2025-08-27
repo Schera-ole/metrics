@@ -46,8 +46,8 @@ func TestUpdateHandler(t *testing.T) {
 	storage := repository.NewMemStorage()
 	logger, _ := zap.NewDevelopment()
 	defer logger.Sync()
-	log_sugar := logger.Sugar()
-	ts := httptest.NewServer(Router(storage, log_sugar))
+	logSugar := logger.Sugar()
+	ts := httptest.NewServer(Router(storage, logSugar))
 	defer ts.Close()
 
 	tests := []struct {

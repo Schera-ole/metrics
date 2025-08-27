@@ -20,14 +20,14 @@ func main() {
 		log.Fatal("Failed to initialize zap logger: ", err)
 	}
 	defer logger.Sync()
-	log_sugar := logger.Sugar()
+	logSugar := logger.Sugar()
 	if envAddress := os.Getenv("ADDRESS"); envAddress != "" {
 		*address = envAddress
 	}
 	storage := repository.NewMemStorage()
-	log_sugar.Infow(
+	logSugar.Infow(
 		"Starting server",
 		"address", address,
 	)
-	log_sugar.Fatal(http.ListenAndServe(*address, handler.Router(storage, log_sugar)))
+	logSugar.Fatal(http.ListenAndServe(*address, handler.Router(storage, logSugar)))
 }
