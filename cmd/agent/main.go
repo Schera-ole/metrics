@@ -10,6 +10,7 @@ import (
 	"os"
 	"reflect"
 	"runtime"
+	"strconv"
 	"time"
 
 	"github.com/Schera-ole/metrics/internal/agent"
@@ -62,6 +63,26 @@ func main() {
 	pollInterval := flag.Int("p", 2, "The frequency of polling metrics from the package")
 	address := flag.String("a", "localhost:8080", "Address for sending metrics")
 	flag.Parse()
+
+	envVars := map[string]*int{
+		"REPORT_INTERVAL": reportInterval,
+		"POLL_INTERVAL":   pollInterval,
+	}
+
+	for envVar, flag := range envVars {
+		if envValue := os.Getenv(envVar); envValue != "" {
+			interval, err := strconv.Atoi(envValue)
+			if err != nil {
+				log.Fatalf("Invalid %s value: %s", envVar, envValue)
+			}
+			*flag = interval
+		}
+	}
+
+	if envAddress := os.Getenv("ADDRESS"); envAddress != "" {
+		*address = envAddress
+	}
+
 	url := "http://" + *address + "/update"
 	counter := &Counter{Value: 0}
 	metricsCh := make(chan []agent.Metric, 10)
