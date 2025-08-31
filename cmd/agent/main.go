@@ -45,7 +45,7 @@ func collectMetrics(counter *Counter) []agent.Metric {
 func sendMetrics(metrics []agent.Metric, url string) error {
 	for _, metric := range metrics {
 		client := &http.Client{
-			Timeout: 30 * time.Second,
+			Transport: &http.Transport{},
 		}
 		reqMetrics := models.Metrics{
 			ID:    metric.Name,
@@ -71,6 +71,7 @@ func sendMetrics(metrics []agent.Metric, url string) error {
 		if err != nil {
 			return fmt.Errorf("error creating json")
 		}
+		fmt.Printf("Sending JSON: %s\n", string(jsonData)) // Debug line
 		request, err := http.NewRequest(http.MethodPost, url, bytes.NewBuffer(jsonData))
 		if err != nil {
 			return fmt.Errorf("error creating request for %s", url)
