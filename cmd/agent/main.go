@@ -45,7 +45,12 @@ func collectMetrics(counter *Counter) []agent.Metric {
 func sendMetrics(metrics []agent.Metric, url string) error {
 	for _, metric := range metrics {
 		client := &http.Client{
-			Transport: &http.Transport{},
+			Timeout: 30 * time.Second,
+			Transport: &http.Transport{
+				DisableKeepAlives: true,
+				MaxIdleConns:      0,
+				IdleConnTimeout:   0,
+			},
 		}
 		reqMetrics := models.Metrics{
 			ID:    metric.Name,
@@ -96,7 +101,6 @@ func main() {
 	pollInterval := flag.Int("p", 2, "The frequency of polling metrics from the package")
 	address := flag.String("a", "localhost:8080", "Address for sending metrics")
 	flag.Parse()
-	time.Sleep(5 * time.Second) // test
 	envVars := map[string]*int{
 		"REPORT_INTERVAL": reportInterval,
 		"POLL_INTERVAL":   pollInterval,
