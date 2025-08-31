@@ -96,7 +96,7 @@ func main() {
 	pollInterval := flag.Int("p", 2, "The frequency of polling metrics from the package")
 	address := flag.String("a", "localhost:8080", "Address for sending metrics")
 	flag.Parse()
-
+	time.Sleep(5 * time.Second) // test
 	envVars := map[string]*int{
 		"REPORT_INTERVAL": reportInterval,
 		"POLL_INTERVAL":   pollInterval,
