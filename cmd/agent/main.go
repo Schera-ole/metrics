@@ -51,8 +51,14 @@ func sendMetrics(metrics []agent.Metric, url string) error {
 		}
 		switch reqMetrics.MType {
 		case config.GaugeType:
-			if val, ok := metric.Value.(float64); ok {
+			if val, ok := metric.Value.(uint64); ok {
+				floatVal := float64(val)
+				reqMetrics.Value = &floatVal
+			} else if val, ok := metric.Value.(float64); ok {
 				reqMetrics.Value = &val
+			} else if val, ok := metric.Value.(uint32); ok {
+				floatVal := float64(val)
+				reqMetrics.Value = &floatVal
 			}
 		case config.CounterType:
 			if val, ok := metric.Value.(int64); ok {
@@ -70,7 +76,7 @@ func sendMetrics(metrics []agent.Metric, url string) error {
 		request.Header.Set("Content-Type", "application/json")
 		response, err := client.Do(request)
 		if err != nil {
-			return fmt.Errorf("error sending request for %s, %s", url, err)
+			return fmt.Errorf("error sending request for %s", url)
 		}
 		io.Copy(os.Stdout, response.Body)
 		response.Body.Close()
