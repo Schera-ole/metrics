@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/chi/v5/middleware"
 	"go.uber.org/zap"
 
 	"github.com/Schera-ole/metrics/internal/config"
@@ -74,6 +75,7 @@ func loggingMiddleware(logger *zap.SugaredLogger) func(http.Handler) http.Handle
 func Router(storage *repository.MemStorage, logger *zap.SugaredLogger) chi.Router {
 	router := chi.NewRouter()
 	router.Use(loggingMiddleware(logger))
+	router.Use(middleware.StripSlashes)
 	router.Post("/update/{type}/{metric}/{value}", func(w http.ResponseWriter, r *http.Request) {
 		UpdateHandlerWithParams(w, r, storage)
 	})
