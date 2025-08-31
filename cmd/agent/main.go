@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bytes"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
@@ -15,6 +17,7 @@ import (
 
 	"github.com/Schera-ole/metrics/internal/agent"
 	"github.com/Schera-ole/metrics/internal/config"
+	models "github.com/Schera-ole/metrics/internal/model"
 )
 
 type Counter struct {
@@ -42,15 +45,32 @@ func collectMetrics(counter *Counter) []agent.Metric {
 func sendMetrics(metrics []agent.Metric, url string) error {
 	for _, metric := range metrics {
 		client := &http.Client{}
-		endpoint := fmt.Sprintf("%s/%s/%s/%v", url, metric.Type, metric.Name, metric.Value)
-		request, err := http.NewRequest(http.MethodPost, endpoint, nil)
-		if err != nil {
-			return fmt.Errorf("error creating request for %s", endpoint)
+		reqMetrics := models.Metrics{
+			ID:    metric.Name,
+			MType: metric.Type,
 		}
-		request.Header.Set("Content-Type", "text/plain")
+		switch reqMetrics.MType {
+		case config.GaugeType:
+			if val, ok := metric.Value.(float64); ok {
+				reqMetrics.Value = &val
+			}
+		case config.CounterType:
+			if val, ok := metric.Value.(int64); ok {
+				reqMetrics.Delta = &val
+			}
+		}
+		jsonData, err := json.Marshal(reqMetrics)
+		if err != nil {
+			return fmt.Errorf("error creating json")
+		}
+		request, err := http.NewRequest(http.MethodPost, url, bytes.NewBuffer(jsonData))
+		if err != nil {
+			return fmt.Errorf("error creating request for %s", url)
+		}
+		request.Header.Set("Content-Type", "application/json")
 		response, err := client.Do(request)
 		if err != nil {
-			return fmt.Errorf("error sending request for %s", endpoint)
+			return fmt.Errorf("error sending request for %s", url)
 		}
 		io.Copy(os.Stdout, response.Body)
 		response.Body.Close()

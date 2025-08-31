@@ -1,13 +1,16 @@
 package handler
 
 import (
+	"bytes"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
 	"go.uber.org/zap"
 
+	models "github.com/Schera-ole/metrics/internal/model"
 	"github.com/Schera-ole/metrics/internal/repository"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -23,7 +26,7 @@ func (m *MockedStorage) SetMetric(name string, val interface{}, typ string) erro
 	return m.Err
 }
 
-func (m *MockedStorage) GetMetric(name string) (interface{}, error) {
+func (m *MockedStorage) GetMetric(metrics models.Metrics) (interface{}, error) {
 	// Просто заглушка
 	return nil, nil
 }
@@ -53,36 +56,42 @@ func TestUpdateHandler(t *testing.T) {
 	tests := []struct {
 		name       string
 		endpoint   string
+		body       string
 		method     string
 		statusCode int
 	}{
 		{
 			name:       "positive gauge test",
-			endpoint:   "/update/gauge/StackInuse/123",
+			endpoint:   "/update",
+			body:       `{"id":"StackInuse","type":"gauge","value":123.0}`,
 			method:     http.MethodPost,
 			statusCode: http.StatusOK,
 		},
 		{
 			name:       "positive counter test",
-			endpoint:   "/update/counter/PollCounter/123",
+			endpoint:   "/update",
+			body:       `{"id":"PollCounter","type":"counter","delta":123}`,
 			method:     http.MethodPost,
 			statusCode: http.StatusOK,
 		},
 		{
-			name:       "not found test",
-			endpoint:   "/update/gauge//123",
-			method:     http.MethodPost,
-			statusCode: http.StatusNotFound,
-		},
-		{
 			name:       "bad request gauge test",
-			endpoint:   "/update/gauge/StackInuse/qwerty",
+			endpoint:   "/update",
+			body:       `{"id":"StackInuse","type":"gauge"}`, // Missing value
 			method:     http.MethodPost,
 			statusCode: http.StatusBadRequest,
 		},
 		{
 			name:       "bad request counter test",
-			endpoint:   "/update/counter/PollCounter/qwerty",
+			endpoint:   "/update",
+			body:       `{"id":"PollCounter","type":"counter"}`, // Missing delta
+			method:     http.MethodPost,
+			statusCode: http.StatusBadRequest,
+		},
+		{
+			name:       "invalid json test",
+			endpoint:   "/update",
+			body:       `{"invalid": json`,
 			method:     http.MethodPost,
 			statusCode: http.StatusBadRequest,
 		},
@@ -91,7 +100,11 @@ func TestUpdateHandler(t *testing.T) {
 		fmt.Print(url + tt.endpoint)
 
 		t.Run(tt.name, func(t *testing.T) {
-			r := testRequest(t, ts, tt.method, tt.endpoint)
+			var body io.Reader
+			if tt.body != "" {
+				body = bytes.NewBufferString(tt.body)
+			}
+			r := testRequest(t, ts, tt.method, tt.endpoint, body)
 			defer r.Body.Close()
 			assert.Equal(t, tt.statusCode, r.StatusCode)
 		})
@@ -99,9 +112,13 @@ func TestUpdateHandler(t *testing.T) {
 }
 
 func testRequest(t *testing.T, ts *httptest.Server, method,
-	path string) *http.Response {
-	req, err := http.NewRequest(method, ts.URL+path, nil)
+	path string, body io.Reader) *http.Response {
+	req, err := http.NewRequest(method, ts.URL+path, body)
 	require.NoError(t, err)
+
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
 
 	resp, err := ts.Client().Do(req)
 	require.NoError(t, err)
