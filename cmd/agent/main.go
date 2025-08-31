@@ -70,7 +70,7 @@ func sendMetrics(metrics []agent.Metric, url string) error {
 		request.Header.Set("Content-Type", "application/json")
 		response, err := client.Do(request)
 		if err != nil {
-			return fmt.Errorf("error sending request for %s", url)
+			return fmt.Errorf("error sending request for %s, %s", url, err)
 		}
 		io.Copy(os.Stdout, response.Body)
 		response.Body.Close()
