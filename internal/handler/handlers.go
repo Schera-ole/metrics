@@ -99,6 +99,7 @@ func UpdateHandler(w http.ResponseWriter, r *http.Request, storage repository.Re
 	err := json.NewDecoder(r.Body).Decode(&metrics)
 	if err != nil {
 		http.Error(w, "Invalid JSON format: "+err.Error(), http.StatusBadRequest)
+		return
 	}
 	switch metrics.MType {
 	case config.GaugeType:
@@ -165,6 +166,7 @@ func GetValue(w http.ResponseWriter, r *http.Request, storage repository.Reposit
 	err := json.NewDecoder(r.Body).Decode(&metrics)
 	if err != nil {
 		http.Error(w, "Invalid JSON format: "+err.Error(), http.StatusBadRequest)
+		return
 	}
 	responseMetric, err := storage.GetMetricWithModels(metrics)
 	if err != nil {
