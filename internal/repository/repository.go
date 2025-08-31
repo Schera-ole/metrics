@@ -86,7 +86,7 @@ func (ms *MemStorage) ListMetrics() []struct {
 }
 
 func (ms *MemStorage) GetMetricWithModels(metrics models.Metrics) (any, error) {
-	metricType, exists := ms.types[metrics.MType]
+	metricType, exists := ms.types[metrics.ID]
 	if !exists {
 		return nil, errors.New("metric is not found")
 	}
