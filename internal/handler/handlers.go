@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -73,8 +74,14 @@ func loggingMiddleware(logger *zap.SugaredLogger) func(http.Handler) http.Handle
 func Router(storage *repository.MemStorage, logger *zap.SugaredLogger) chi.Router {
 	router := chi.NewRouter()
 	router.Use(loggingMiddleware(logger))
+	router.Post("/update/{type}/{metric}/{value}", func(w http.ResponseWriter, r *http.Request) {
+		UpdateHandlerWithParams(w, r, storage)
+	})
 	router.Post("/update", func(w http.ResponseWriter, r *http.Request) {
 		UpdateHandler(w, r, storage)
+	})
+	router.Get("/value/{type}/{name}", func(w http.ResponseWriter, r *http.Request) {
+		GetHandler(w, r, storage)
 	})
 	router.Post("/value", func(w http.ResponseWriter, r *http.Request) {
 		GetValue(w, r, storage)
@@ -115,13 +122,49 @@ func UpdateHandler(w http.ResponseWriter, r *http.Request, storage repository.Re
 	w.WriteHeader(http.StatusOK)
 }
 
+func UpdateHandlerWithParams(w http.ResponseWriter, r *http.Request, storage repository.Repository) {
+	metricType := chi.URLParam(r, "type")
+	metricName := chi.URLParam(r, "metric")
+	metricValue := chi.URLParam(r, "value")
+	if metricName == "" {
+		http.Error(w, "Metric name not found ", http.StatusNotFound)
+		return
+	}
+	var Metric any
+	switch metricType {
+	case config.GaugeType:
+		floatVal, floatErr := strconv.ParseFloat(metricValue, 64)
+		if floatErr != nil {
+			http.Error(w, "Metric value should be a float", http.StatusBadRequest)
+			return
+		}
+		Metric = floatVal
+	case config.CounterType:
+		intVal, intErr := strconv.ParseInt(metricValue, 10, 64)
+		if intErr != nil {
+			http.Error(w, "Metric value should be an integer", http.StatusBadRequest)
+			return
+		}
+		Metric = intVal
+	default:
+		http.Error(w, "Invalid metric type", http.StatusBadRequest)
+		return
+	}
+	err := storage.SetMetric(metricName, Metric, metricType)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+}
+
 func GetValue(w http.ResponseWriter, r *http.Request, storage repository.Repository) {
 	var metrics models.Metrics
 	err := json.NewDecoder(r.Body).Decode(&metrics)
 	if err != nil {
 		http.Error(w, "Invalid JSON format: "+err.Error(), http.StatusBadRequest)
 	}
-	responseMetric, err := storage.GetMetric(metrics)
+	responseMetric, err := storage.GetMetricWithModels(metrics)
 	if err != nil {
 		http.Error(w, "Metric name not found ", http.StatusNotFound)
 		return
@@ -131,15 +174,15 @@ func GetValue(w http.ResponseWriter, r *http.Request, storage repository.Reposit
 	json.NewEncoder(w).Encode(responseMetric)
 }
 
-// func GetHandler(w http.ResponseWriter, r *http.Request, storage repository.Repository) {
-// 	metricName := chi.URLParam(r, "name")
-// 	metricValue, err := storage.GetMetric(metricName)
-// 	if err != nil {
-// 		http.Error(w, "Metric name not found ", http.StatusNotFound)
-// 		return
-// 	}
-// 	fmt.Fprintf(w, "%v", metricValue)
-// }
+func GetHandler(w http.ResponseWriter, r *http.Request, storage repository.Repository) {
+	metricName := chi.URLParam(r, "name")
+	metricValue, err := storage.GetMetric(metricName)
+	if err != nil {
+		http.Error(w, "Metric name not found ", http.StatusNotFound)
+		return
+	}
+	fmt.Fprintf(w, "%v", metricValue)
+}
 
 func GetListHandler(w http.ResponseWriter, r *http.Request, storage repository.Repository) {
 	var result string
