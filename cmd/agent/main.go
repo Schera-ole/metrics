@@ -44,7 +44,9 @@ func collectMetrics(counter *Counter) []agent.Metric {
 
 func sendMetrics(metrics []agent.Metric, url string) error {
 	for _, metric := range metrics {
-		client := &http.Client{}
+		client := &http.Client{
+			Timeout: 30 * time.Second,
+		}
 		reqMetrics := models.Metrics{
 			ID:    metric.Name,
 			MType: metric.Type,
@@ -73,13 +75,17 @@ func sendMetrics(metrics []agent.Metric, url string) error {
 		if err != nil {
 			return fmt.Errorf("error creating request for %s", url)
 		}
+		request.Close = true
 		request.Header.Set("Content-Type", "application/json")
 		response, err := client.Do(request)
 		if err != nil {
+			fmt.Printf("Error sending request for %s: %v\n", url, err)
+			fmt.Printf("Request details - Method: %s, URL: %s, Content-Length: %d\n",
+				request.Method, request.URL, request.ContentLength)
 			return fmt.Errorf("error sending request for %s, %s", url, err)
 		}
+		defer response.Body.Close()
 		io.Copy(os.Stdout, response.Body)
-		response.Body.Close()
 	}
 	return nil
 }
