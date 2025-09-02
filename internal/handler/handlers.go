@@ -22,6 +22,7 @@ import (
 func Router(storage *repository.MemStorage, logger *zap.SugaredLogger) chi.Router {
 	router := chi.NewRouter()
 	router.Use(middlewareinternal.LoggingMiddleware(logger))
+	router.Use(middlewareinternal.GzipMiddleware)
 	router.Use(middleware.StripSlashes)
 	router.Post("/update/{type}/{metric}/{value}", func(w http.ResponseWriter, r *http.Request) {
 		UpdateHandlerWithParams(w, r, storage)
@@ -45,7 +46,6 @@ func Router(storage *repository.MemStorage, logger *zap.SugaredLogger) chi.Route
 func UpdateHandler(w http.ResponseWriter, r *http.Request, storage repository.Repository) {
 	var reader io.Reader = r.Body
 
-	// Check if the request is gzip compressed
 	if strings.Contains(r.Header.Get("Content-Encoding"), "gzip") {
 		gzipReader, err := gzip.NewReader(r.Body)
 		if err != nil {
@@ -84,6 +84,7 @@ func UpdateHandler(w http.ResponseWriter, r *http.Request, storage repository.Re
 		return
 	}
 	w.WriteHeader(http.StatusOK)
+	w.Write([]byte{})
 }
 
 func UpdateHandlerWithParams(w http.ResponseWriter, r *http.Request, storage repository.Repository) {
@@ -120,6 +121,7 @@ func UpdateHandlerWithParams(w http.ResponseWriter, r *http.Request, storage rep
 		return
 	}
 	w.WriteHeader(http.StatusOK)
+	w.Write([]byte{})
 }
 
 func GetValue(w http.ResponseWriter, r *http.Request, storage repository.Repository) {
