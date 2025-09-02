@@ -1,6 +1,7 @@
 package main
 
 import (
+	"compress/gzip"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -42,8 +43,14 @@ func TestSendMetric(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, http.MethodPost, r.Method)
 		assert.Equal(t, "application/json", r.Header.Get("Content-Type"))
+		assert.Equal(t, "gzip", r.Header.Get("Content-Encoding"))
 
-		body, err := io.ReadAll(r.Body)
+		// Decompress the gzipped body
+		gzipReader, err := gzip.NewReader(r.Body)
+		require.NoError(t, err)
+		defer gzipReader.Close()
+
+		body, err := io.ReadAll(gzipReader)
 		require.NoError(t, err)
 
 		var receivedMetric models.Metrics
