@@ -1,4 +1,4 @@
-package middlewareInternal
+package middlewareinternal
 
 import (
 	"io"
