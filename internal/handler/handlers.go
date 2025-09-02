@@ -14,14 +14,14 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/Schera-ole/metrics/internal/config"
-	middleware_internal "github.com/Schera-ole/metrics/internal/middleware"
+	middlewareInternal "github.com/Schera-ole/metrics/internal/middleware"
 	models "github.com/Schera-ole/metrics/internal/model"
 	"github.com/Schera-ole/metrics/internal/repository"
 )
 
 func Router(storage *repository.MemStorage, logger *zap.SugaredLogger) chi.Router {
 	router := chi.NewRouter()
-	router.Use(middleware_internal.LoggingMiddleware(logger))
+	router.Use(middlewareInternal.LoggingMiddleware(logger))
 	router.Use(middleware.StripSlashes)
 	router.Post("/update/{type}/{metric}/{value}", func(w http.ResponseWriter, r *http.Request) {
 		UpdateHandlerWithParams(w, r, storage)
