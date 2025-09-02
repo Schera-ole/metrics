@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"compress/gzip"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -68,20 +69,28 @@ func sendMetrics(client *http.Client, metrics []agent.Metric, url string) error 
 		if err != nil {
 			return fmt.Errorf("error creating json")
 		}
-		fmt.Printf("Sending JSON: %s\n", string(jsonData)) // Debug line
-		request, err := http.NewRequest(http.MethodPost, url, bytes.NewBuffer(jsonData))
+
+		var compressedData bytes.Buffer
+		gzipWriter := gzip.NewWriter(&compressedData)
+		if _, err := gzipWriter.Write(jsonData); err != nil {
+			return fmt.Errorf("error compressing data: %w", err)
+		}
+		if err := gzipWriter.Close(); err != nil {
+			return fmt.Errorf("error closing gzip writer: %w", err)
+		}
+
+		request, err := http.NewRequest(http.MethodPost, url, &compressedData)
 		if err != nil {
 			return fmt.Errorf("error creating request for %s", url)
 		}
 		request.Header.Set("Content-Type", "application/json")
+		request.Header.Set("Accept-Encoding", "gzip")
+		request.Header.Set("Content-Encoding", "gzip")
+
 		response, err := client.Do(request)
 		if err != nil {
-			fmt.Printf("Error sending request for %s: %v\n", url, err)
-			fmt.Printf("Request details - Method: %s, URL: %s, Content-Length: %d\n",
-				request.Method, request.URL, request.ContentLength)
 			return fmt.Errorf("error sending request for %s, %s", url, err)
 		}
-		// Read the response body before closing it
 		body, err := io.ReadAll(response.Body)
 		response.Body.Close()
 		if err != nil {
