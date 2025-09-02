@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/go-chi/chi/v5/middleware"
 	"go.uber.org/zap"
 
 	"github.com/Schera-ole/metrics/internal/config"
@@ -75,18 +74,35 @@ func loggingMiddleware(logger *zap.SugaredLogger) func(http.Handler) http.Handle
 func Router(storage *repository.MemStorage, logger *zap.SugaredLogger) chi.Router {
 	router := chi.NewRouter()
 	router.Use(loggingMiddleware(logger))
-	router.Use(middleware.StripSlashes)
-	router.Post("/update/{type}/{metric}/{value}", func(w http.ResponseWriter, r *http.Request) {
-		UpdateHandlerWithParams(w, r, storage)
+	// router.Use(middleware.StripSlashes)
+	// router.Post("/update/{type}/{metric}/{value}", func(w http.ResponseWriter, r *http.Request) {
+	// 	UpdateHandlerWithParams(w, r, storage)
+	// })
+	// router.Post("/update", func(w http.ResponseWriter, r *http.Request) {
+	// 	UpdateHandler(w, r, storage)
+	// })
+	// router.Get("/value/{type}/{name}", func(w http.ResponseWriter, r *http.Request) {
+	// 	GetHandler(w, r, storage)
+	// })
+	// router.Post("/value", func(w http.ResponseWriter, r *http.Request) {
+	// 	GetValue(w, r, storage)
+	// })
+	router.Route("/update", func(r chi.Router) {
+		r.Post("/", func(w http.ResponseWriter, r *http.Request) {
+			UpdateHandler(w, r, storage)
+		})
+		r.Post("/{type}/{metric}/{value}", func(w http.ResponseWriter, r *http.Request) {
+			UpdateHandlerWithParams(w, r, storage)
+		})
 	})
-	router.Post("/update", func(w http.ResponseWriter, r *http.Request) {
-		UpdateHandler(w, r, storage)
-	})
-	router.Get("/value/{type}/{name}", func(w http.ResponseWriter, r *http.Request) {
-		GetHandler(w, r, storage)
-	})
-	router.Post("/value", func(w http.ResponseWriter, r *http.Request) {
-		GetValue(w, r, storage)
+
+	router.Route("/value", func(r chi.Router) {
+		r.Post("/", func(w http.ResponseWriter, r *http.Request) {
+			GetValue(w, r, storage)
+		})
+		r.Get("/{type}/{name}", func(w http.ResponseWriter, r *http.Request) {
+			GetHandler(w, r, storage)
+		})
 	})
 	router.Get("/", func(w http.ResponseWriter, r *http.Request) {
 		GetListHandler(w, r, storage)
