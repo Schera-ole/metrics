@@ -42,16 +42,8 @@ func collectMetrics(counter *Counter) []agent.Metric {
 	return metrics
 }
 
-func sendMetrics(metrics []agent.Metric, url string) error {
+func sendMetrics(client *http.Client, metrics []agent.Metric, url string) error {
 	for _, metric := range metrics {
-		client := &http.Client{
-			Timeout: 30 * time.Second,
-			Transport: &http.Transport{
-				DisableKeepAlives: true,
-				MaxIdleConns:      0,
-				IdleConnTimeout:   0,
-			},
-		}
 		reqMetrics := models.Metrics{
 			ID:    metric.Name,
 			MType: metric.Type,
@@ -81,7 +73,6 @@ func sendMetrics(metrics []agent.Metric, url string) error {
 		if err != nil {
 			return fmt.Errorf("error creating request for %s", url)
 		}
-		request.Close = true
 		request.Header.Set("Content-Type", "application/json")
 		response, err := client.Do(request)
 		if err != nil {
@@ -90,8 +81,13 @@ func sendMetrics(metrics []agent.Metric, url string) error {
 				request.Method, request.URL, request.ContentLength)
 			return fmt.Errorf("error sending request for %s, %s", url, err)
 		}
-		defer response.Body.Close()
-		io.Copy(os.Stdout, response.Body)
+		// Read the response body before closing it
+		body, err := io.ReadAll(response.Body)
+		response.Body.Close()
+		if err != nil {
+			return fmt.Errorf("error reading response body: %s", err)
+		}
+		fmt.Printf("Response: %s\n", string(body))
 	}
 	return nil
 }
@@ -120,6 +116,16 @@ func main() {
 		*address = envAddress
 	}
 
+	// Create a shared HTTP client with proper configuration
+	client := &http.Client{
+		Timeout: 30 * time.Second,
+		Transport: &http.Transport{
+			MaxIdleConns:        100,
+			IdleConnTimeout:     90 * time.Second,
+			MaxIdleConnsPerHost: 10,
+		},
+	}
+
 	url := "http://" + *address + "/update"
 	counter := &Counter{Value: 0}
 	metricsCh := make(chan []agent.Metric, 10)
@@ -132,9 +138,10 @@ func main() {
 	for {
 		select {
 		case metrics := <-metricsCh:
-			err := sendMetrics(metrics, url)
+			err := sendMetrics(client, metrics, url)
 			if err != nil {
-				log.Fatal(err)
+				log.Printf("Error sending metrics: %v", err)
+				// Continue with the next iteration instead of fatal exit
 			}
 		default:
 			// при пустом - ничего не делаем.
