@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bytes"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
@@ -10,10 +12,12 @@ import (
 	"os"
 	"reflect"
 	"runtime"
+	"strconv"
 	"time"
 
 	"github.com/Schera-ole/metrics/internal/agent"
 	"github.com/Schera-ole/metrics/internal/config"
+	models "github.com/Schera-ole/metrics/internal/model"
 )
 
 type Counter struct {
@@ -38,21 +42,52 @@ func collectMetrics(counter *Counter) []agent.Metric {
 	return metrics
 }
 
-func sendMetrics(metrics []agent.Metric, url string) error {
+func sendMetrics(client *http.Client, metrics []agent.Metric, url string) error {
 	for _, metric := range metrics {
-		client := &http.Client{}
-		endpoint := fmt.Sprintf("%s/%s/%s/%v", url, metric.Type, metric.Name, metric.Value)
-		request, err := http.NewRequest(http.MethodPost, endpoint, nil)
-		if err != nil {
-			return fmt.Errorf("error creating request for %s", endpoint)
+		reqMetrics := models.Metrics{
+			ID:    metric.Name,
+			MType: metric.Type,
 		}
-		request.Header.Set("Content-Type", "text/plain")
+		switch reqMetrics.MType {
+		case config.GaugeType:
+			if val, ok := metric.Value.(uint64); ok {
+				floatVal := float64(val)
+				reqMetrics.Value = &floatVal
+			} else if val, ok := metric.Value.(float64); ok {
+				reqMetrics.Value = &val
+			} else if val, ok := metric.Value.(uint32); ok {
+				floatVal := float64(val)
+				reqMetrics.Value = &floatVal
+			}
+		case config.CounterType:
+			if val, ok := metric.Value.(int64); ok {
+				reqMetrics.Delta = &val
+			}
+		}
+		jsonData, err := json.Marshal(reqMetrics)
+		if err != nil {
+			return fmt.Errorf("error creating json")
+		}
+		fmt.Printf("Sending JSON: %s\n", string(jsonData)) // Debug line
+		request, err := http.NewRequest(http.MethodPost, url, bytes.NewBuffer(jsonData))
+		if err != nil {
+			return fmt.Errorf("error creating request for %s", url)
+		}
+		request.Header.Set("Content-Type", "application/json")
 		response, err := client.Do(request)
 		if err != nil {
-			return fmt.Errorf("error sending request for %s", endpoint)
+			fmt.Printf("Error sending request for %s: %v\n", url, err)
+			fmt.Printf("Request details - Method: %s, URL: %s, Content-Length: %d\n",
+				request.Method, request.URL, request.ContentLength)
+			return fmt.Errorf("error sending request for %s, %s", url, err)
 		}
-		io.Copy(os.Stdout, response.Body)
+		// Read the response body before closing it
+		body, err := io.ReadAll(response.Body)
 		response.Body.Close()
+		if err != nil {
+			return fmt.Errorf("error reading response body: %s", err)
+		}
+		fmt.Printf("Response: %s\n", string(body))
 	}
 	return nil
 }
@@ -62,6 +97,35 @@ func main() {
 	pollInterval := flag.Int("p", 2, "The frequency of polling metrics from the package")
 	address := flag.String("a", "localhost:8080", "Address for sending metrics")
 	flag.Parse()
+	envVars := map[string]*int{
+		"REPORT_INTERVAL": reportInterval,
+		"POLL_INTERVAL":   pollInterval,
+	}
+
+	for envVar, flag := range envVars {
+		if envValue := os.Getenv(envVar); envValue != "" {
+			interval, err := strconv.Atoi(envValue)
+			if err != nil {
+				log.Fatalf("Invalid %s value: %s", envVar, envValue)
+			}
+			*flag = interval
+		}
+	}
+
+	if envAddress := os.Getenv("ADDRESS"); envAddress != "" {
+		*address = envAddress
+	}
+
+	// Create a shared HTTP client with proper configuration
+	client := &http.Client{
+		Timeout: 30 * time.Second,
+		Transport: &http.Transport{
+			MaxIdleConns:        100,
+			IdleConnTimeout:     90 * time.Second,
+			MaxIdleConnsPerHost: 10,
+		},
+	}
+
 	url := "http://" + *address + "/update"
 	counter := &Counter{Value: 0}
 	metricsCh := make(chan []agent.Metric, 10)
@@ -74,9 +138,10 @@ func main() {
 	for {
 		select {
 		case metrics := <-metricsCh:
-			err := sendMetrics(metrics, url)
+			err := sendMetrics(client, metrics, url)
 			if err != nil {
-				log.Fatal(err)
+				log.Printf("Error sending metrics: %v", err)
+				// Continue with the next iteration instead of fatal exit
 			}
 		default:
 			// при пустом - ничего не делаем.
