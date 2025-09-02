@@ -4,6 +4,7 @@ import (
 	"errors"
 
 	"github.com/Schera-ole/metrics/internal/config"
+	models "github.com/Schera-ole/metrics/internal/model"
 )
 
 type MemStorage struct {
@@ -14,6 +15,7 @@ type MemStorage struct {
 
 type Repository interface {
 	SetMetric(name string, value any, typ string) error
+	GetMetricWithModels(metrics models.Metrics) (any, error)
 	GetMetric(name string) (any, error)
 	DeleteMetric(name string) error
 	ListMetrics() []struct {
@@ -81,6 +83,26 @@ func (ms *MemStorage) ListMetrics() []struct {
 		}{Name: name, Value: value})
 	}
 	return result
+}
+
+func (ms *MemStorage) GetMetricWithModels(metrics models.Metrics) (any, error) {
+	metricType, exists := ms.types[metrics.ID]
+	if !exists {
+		return nil, errors.New("metric is not found")
+	}
+	switch metricType {
+	case config.GaugeType:
+		if val, exists := ms.gauges[metrics.ID]; exists {
+			metrics.Value = &val
+		}
+	case config.CounterType:
+		if val, exists := ms.counters[metrics.ID]; exists {
+			metrics.Delta = &val
+		}
+	default:
+		return nil, errors.New("unknown type of metric")
+	}
+	return metrics, nil
 }
 
 func (ms *MemStorage) GetMetric(name string) (any, error) {
