@@ -1,12 +1,13 @@
 package main
 
 import (
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 
+	models "github.com/Schera-ole/metrics/internal/model"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -36,16 +37,20 @@ func TestCollectMetrics(t *testing.T) {
 }
 
 func TestSendMetric(t *testing.T) {
-	var receivedRequests []string
+	var receivedRequests []models.Metrics
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, http.MethodPost, r.Method)
 		assert.Equal(t, "application/json", r.Header.Get("Content-Type"))
 
-		// Capture the request body for verification
 		body, err := io.ReadAll(r.Body)
 		require.NoError(t, err)
-		receivedRequests = append(receivedRequests, string(body))
+
+		var receivedMetric models.Metrics
+		err = json.Unmarshal(body, &receivedMetric)
+		require.NoError(t, err)
+
+		receivedRequests = append(receivedRequests, receivedMetric)
 
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -60,19 +65,17 @@ func TestSendMetric(t *testing.T) {
 	err := sendMetrics(client, metrics, server.URL+"/update")
 	require.NoError(t, err)
 
-	// Verify that we received the expected number of requests
 	assert.Equal(t, len(metrics), len(receivedRequests))
 
-	// Verify that each metric was sent
+	// Create a map of received metrics for easier lookup
+	receivedMetricsMap := make(map[string]models.Metrics)
+	for _, receivedMetric := range receivedRequests {
+		receivedMetricsMap[receivedMetric.ID] = receivedMetric
+	}
+
+	// Verify that each metric was sent correctly
 	for _, metric := range metrics {
-		// Check that the metric name appears in at least one request
-		found := false
-		for _, request := range receivedRequests {
-			if strings.Contains(request, metric.Name) {
-				found = true
-				break
-			}
-		}
-		assert.True(t, found, "Metric %s should be sent in a request", metric.Name)
+		_, exists := receivedMetricsMap[metric.Name]
+		assert.True(t, exists, "Metric %s should be sent in a request", metric.Name)
 	}
 }
