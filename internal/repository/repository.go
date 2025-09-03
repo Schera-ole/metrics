@@ -1,10 +1,22 @@
 package repository
 
 import (
+	"encoding/json"
 	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
 
 	"github.com/Schera-ole/metrics/internal/config"
+	models "github.com/Schera-ole/metrics/internal/model"
+	"go.uber.org/zap"
 )
+
+type Metric struct {
+	Name  string
+	Type  string
+	Value any
+}
 
 type MemStorage struct {
 	gauges   map[string]float64
@@ -14,12 +26,15 @@ type MemStorage struct {
 
 type Repository interface {
 	SetMetric(name string, value any, typ string) error
+	GetMetricWithModels(metrics models.Metrics) (any, error)
 	GetMetric(name string) (any, error)
 	DeleteMetric(name string) error
 	ListMetrics() []struct {
 		Name  string
 		Value any
 	}
+	RestoreMetrics(fname string, logger *zap.SugaredLogger) error
+	SaveMetrics(fname string) error
 }
 
 func NewMemStorage() *MemStorage {
@@ -33,8 +48,19 @@ func NewMemStorage() *MemStorage {
 func (ms *MemStorage) SetMetric(name string, value any, typ string) error {
 	switch value := value.(type) {
 	case float64:
-		ms.gauges[name] = value
-		ms.types[name] = typ
+		if typ == config.CounterType {
+			intVal := int64(value)
+			_, exists := ms.counters[name]
+			if exists {
+				ms.counters[name] += intVal
+			} else {
+				ms.counters[name] = intVal
+				ms.types[name] = typ
+			}
+		} else {
+			ms.gauges[name] = value
+			ms.types[name] = typ
+		}
 	case int64:
 		_, exists := ms.counters[name]
 		if exists {
@@ -83,6 +109,33 @@ func (ms *MemStorage) ListMetrics() []struct {
 	return result
 }
 
+func (ms *MemStorage) GetMetricWithModels(metrics models.Metrics) (any, error) {
+	metricType, exists := ms.types[metrics.ID]
+	if !exists {
+		return nil, errors.New("metric is not found")
+	}
+
+	// Create a new metrics struct for the response
+	responseMetrics := models.Metrics{
+		ID:    metrics.ID,
+		MType: metricType,
+	}
+
+	switch metricType {
+	case config.GaugeType:
+		if val, exists := ms.gauges[metrics.ID]; exists {
+			responseMetrics.Value = &val
+		}
+	case config.CounterType:
+		if val, exists := ms.counters[metrics.ID]; exists {
+			responseMetrics.Delta = &val
+		}
+	default:
+		return nil, errors.New("unknown type of metric")
+	}
+	return responseMetrics, nil
+}
+
 func (ms *MemStorage) GetMetric(name string) (any, error) {
 	metricType, exists := ms.types[name]
 	if !exists {
@@ -96,4 +149,57 @@ func (ms *MemStorage) GetMetric(name string) (any, error) {
 	default:
 		return nil, errors.New("unknown type of metric")
 	}
+}
+
+func (ms *MemStorage) SaveMetrics(fname string) error {
+	// Create directory if it doesn't exist
+	dir := filepath.Dir(fname)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return fmt.Errorf("error creating directory: %w", err)
+	}
+
+	file, err := os.Create(fname)
+	if err != nil {
+		return fmt.Errorf("error creating file: %w", err)
+	}
+	defer file.Close()
+
+	encoder := json.NewEncoder(file)
+	metrics := ms.ListMetrics()
+
+	var formattedMetrics []Metric
+	for _, m := range metrics {
+		typ := ms.types[m.Name]
+		formattedMetrics = append(formattedMetrics, Metric{
+			Name:  m.Name,
+			Type:  typ,
+			Value: m.Value,
+		})
+	}
+
+	return encoder.Encode(formattedMetrics)
+}
+
+func (ms *MemStorage) RestoreMetrics(fname string, logger *zap.SugaredLogger) error {
+	if _, err := os.Stat(fname); os.IsNotExist(err) {
+		logger.Infof("storage file not exists %s", fname)
+		return nil
+	}
+
+	file, err := os.Open(fname)
+	if err != nil {
+		return fmt.Errorf("error while opening file to restore: %w", err)
+	}
+	defer file.Close()
+
+	decoder := json.NewDecoder(file)
+	metrics := []Metric{}
+	err = decoder.Decode(&metrics)
+	if err != nil {
+		return fmt.Errorf("error while marshalling file store: %w", err)
+	}
+	for _, metric := range metrics {
+		ms.SetMetric(metric.Name, metric.Value, metric.Type)
+	}
+	return nil
 }

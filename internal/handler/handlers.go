@@ -1,31 +1,99 @@
 package handler
 
 import (
+	"compress/gzip"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"strconv"
+	"strings"
+
+	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/chi/v5/middleware"
+	"go.uber.org/zap"
 
 	"github.com/Schera-ole/metrics/internal/config"
+	middlewareinternal "github.com/Schera-ole/metrics/internal/middleware"
+	models "github.com/Schera-ole/metrics/internal/model"
 	"github.com/Schera-ole/metrics/internal/repository"
-	"github.com/go-chi/chi/v5"
 )
 
-func Router(storage *repository.MemStorage) chi.Router {
+func Router(storage *repository.MemStorage, logger *zap.SugaredLogger, fileStoragePath string, storeInterval int) chi.Router {
 	router := chi.NewRouter()
+	router.Use(middlewareinternal.LoggingMiddleware(logger))
+	router.Use(middlewareinternal.GzipMiddleware)
+	router.Use(middleware.StripSlashes)
 	router.Post("/update/{type}/{metric}/{value}", func(w http.ResponseWriter, r *http.Request) {
-		UpdateHandler(w, r, storage)
+		UpdateHandlerWithParams(w, r, storage, logger, fileStoragePath, storeInterval)
+	})
+	router.Post("/update", func(w http.ResponseWriter, r *http.Request) {
+		UpdateHandler(w, r, storage, logger, fileStoragePath, storeInterval)
 	})
 	router.Get("/value/{type}/{name}", func(w http.ResponseWriter, r *http.Request) {
 		GetHandler(w, r, storage)
 	})
+	router.Post("/value", func(w http.ResponseWriter, r *http.Request) {
+		GetValue(w, r, storage)
+	})
+
 	router.Get("/", func(w http.ResponseWriter, r *http.Request) {
 		GetListHandler(w, r, storage)
 	})
 	return router
 }
 
-func UpdateHandler(w http.ResponseWriter, r *http.Request, storage repository.Repository) {
+func UpdateHandler(w http.ResponseWriter, r *http.Request, storage repository.Repository, logger *zap.SugaredLogger, fileStoragePath string, storeInterval int) {
+	var reader io.Reader = r.Body
+
+	if strings.Contains(r.Header.Get("Content-Encoding"), "gzip") {
+		gzipReader, err := gzip.NewReader(r.Body)
+		if err != nil {
+			http.Error(w, "Failed to create gzip reader: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		defer gzipReader.Close()
+		reader = gzipReader
+	}
+
+	var metrics models.Metrics
+	err := json.NewDecoder(reader).Decode(&metrics)
+	if err != nil {
+		http.Error(w, "Invalid JSON format: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	switch metrics.MType {
+	case config.GaugeType:
+		if metrics.Value == nil {
+			http.Error(w, "Gauge metrics must have a value", http.StatusBadRequest)
+			return
+		}
+		err = storage.SetMetric(metrics.ID, *metrics.Value, metrics.MType)
+	case config.CounterType:
+		if metrics.Delta == nil {
+			http.Error(w, "Counter metrics must have a delta", http.StatusBadRequest)
+			return
+		}
+		err = storage.SetMetric(metrics.ID, *metrics.Delta, metrics.MType)
+	default:
+		http.Error(w, "Invalid metric type", http.StatusBadRequest)
+		return
+	}
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte{})
+
+	if storeInterval == 0 {
+		if err := storage.SaveMetrics(fileStoragePath); err != nil {
+			logger.Infof("couldn't save to file %s", err)
+		}
+	}
+}
+
+func UpdateHandlerWithParams(w http.ResponseWriter, r *http.Request, storage repository.Repository, logger *zap.SugaredLogger, fileStoragePath string, storeInterval int) {
 	metricType := chi.URLParam(r, "type")
 	metricName := chi.URLParam(r, "metric")
 	metricValue := chi.URLParam(r, "value")
@@ -59,6 +127,30 @@ func UpdateHandler(w http.ResponseWriter, r *http.Request, storage repository.Re
 		return
 	}
 	w.WriteHeader(http.StatusOK)
+	w.Write([]byte{})
+
+	if storeInterval == 0 {
+		if err := storage.SaveMetrics(fileStoragePath); err != nil {
+			logger.Infof("couldn't save to file %s", err)
+		}
+	}
+}
+
+func GetValue(w http.ResponseWriter, r *http.Request, storage repository.Repository) {
+	var metrics models.Metrics
+	err := json.NewDecoder(r.Body).Decode(&metrics)
+	if err != nil {
+		http.Error(w, "Invalid JSON format: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	responseMetric, err := storage.GetMetricWithModels(metrics)
+	if err != nil {
+		http.Error(w, "Metric name not found ", http.StatusNotFound)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(responseMetric)
 }
 
 func GetHandler(w http.ResponseWriter, r *http.Request, storage repository.Repository) {
