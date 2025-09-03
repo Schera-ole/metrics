@@ -1,11 +1,22 @@
 package repository
 
 import (
+	"encoding/json"
 	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
 
 	"github.com/Schera-ole/metrics/internal/config"
 	models "github.com/Schera-ole/metrics/internal/model"
+	"go.uber.org/zap"
 )
+
+type Metric struct {
+	Name  string
+	Type  string
+	Value any
+}
 
 type MemStorage struct {
 	gauges   map[string]float64
@@ -22,6 +33,8 @@ type Repository interface {
 		Name  string
 		Value any
 	}
+	RestoreMetrics(fname string, logger *zap.SugaredLogger) error
+	SaveMetrics(fname string) error
 }
 
 func NewMemStorage() *MemStorage {
@@ -118,4 +131,58 @@ func (ms *MemStorage) GetMetric(name string) (any, error) {
 	default:
 		return nil, errors.New("unknown type of metric")
 	}
+}
+
+func (ms *MemStorage) SaveMetrics(fname string) error {
+	// Create directory if it doesn't exist
+	dir := filepath.Dir(fname)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return fmt.Errorf("error creating directory: %w", err)
+	}
+
+	file, err := os.Create(fname)
+	if err != nil {
+		return fmt.Errorf("error creating file: %w", err)
+	}
+	defer file.Close()
+
+	encoder := json.NewEncoder(file)
+	metrics := ms.ListMetrics()
+
+	// Convert to the format we need for saving
+	var formattedMetrics []Metric
+	for _, m := range metrics {
+		typ := ms.types[m.Name]
+		formattedMetrics = append(formattedMetrics, Metric{
+			Name:  m.Name,
+			Type:  typ,
+			Value: m.Value,
+		})
+	}
+
+	return encoder.Encode(formattedMetrics)
+}
+
+func (ms *MemStorage) RestoreMetrics(fname string, logger *zap.SugaredLogger) error {
+	if _, err := os.Stat(fname); os.IsNotExist(err) {
+		logger.Infof("storage file not exists %s", fname)
+		return nil
+	}
+
+	file, err := os.Open(fname)
+	if err != nil {
+		return fmt.Errorf("error while opening file to restore: %w", err)
+	}
+	defer file.Close()
+
+	decoder := json.NewDecoder(file)
+	metrics := []Metric{}
+	err = decoder.Decode(&metrics)
+	if err != nil {
+		return fmt.Errorf("error while marshalling file store: %w", err)
+	}
+	for _, metric := range metrics {
+		ms.SetMetric(metric.Name, metric.Value, metric.Type)
+	}
+	return nil
 }

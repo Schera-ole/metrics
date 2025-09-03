@@ -125,15 +125,7 @@ func main() {
 		*address = envAddress
 	}
 
-	// Create a shared HTTP client with proper configuration
-	client := &http.Client{
-		Timeout: 30 * time.Second,
-		Transport: &http.Transport{
-			MaxIdleConns:        100,
-			IdleConnTimeout:     90 * time.Second,
-			MaxIdleConnsPerHost: 10,
-		},
-	}
+	client := &http.Client{}
 
 	url := "http://" + *address + "/update"
 	counter := &Counter{Value: 0}

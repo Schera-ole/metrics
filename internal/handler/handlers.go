@@ -19,16 +19,16 @@ import (
 	"github.com/Schera-ole/metrics/internal/repository"
 )
 
-func Router(storage *repository.MemStorage, logger *zap.SugaredLogger) chi.Router {
+func Router(storage *repository.MemStorage, logger *zap.SugaredLogger, fileStoragePath string, storeInterval int) chi.Router {
 	router := chi.NewRouter()
 	router.Use(middlewareinternal.LoggingMiddleware(logger))
 	router.Use(middlewareinternal.GzipMiddleware)
 	router.Use(middleware.StripSlashes)
 	router.Post("/update/{type}/{metric}/{value}", func(w http.ResponseWriter, r *http.Request) {
-		UpdateHandlerWithParams(w, r, storage)
+		UpdateHandlerWithParams(w, r, storage, logger, fileStoragePath, storeInterval)
 	})
 	router.Post("/update", func(w http.ResponseWriter, r *http.Request) {
-		UpdateHandler(w, r, storage)
+		UpdateHandler(w, r, storage, logger, fileStoragePath, storeInterval)
 	})
 	router.Get("/value/{type}/{name}", func(w http.ResponseWriter, r *http.Request) {
 		GetHandler(w, r, storage)
@@ -43,7 +43,7 @@ func Router(storage *repository.MemStorage, logger *zap.SugaredLogger) chi.Route
 	return router
 }
 
-func UpdateHandler(w http.ResponseWriter, r *http.Request, storage repository.Repository) {
+func UpdateHandler(w http.ResponseWriter, r *http.Request, storage repository.Repository, logger *zap.SugaredLogger, fileStoragePath string, storeInterval int) {
 	var reader io.Reader = r.Body
 
 	if strings.Contains(r.Header.Get("Content-Encoding"), "gzip") {
@@ -85,9 +85,15 @@ func UpdateHandler(w http.ResponseWriter, r *http.Request, storage repository.Re
 	}
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte{})
+
+	if storeInterval == 0 {
+		if err := storage.SaveMetrics(fileStoragePath); err != nil {
+			logger.Infof("couldn't save to file %s", err)
+		}
+	}
 }
 
-func UpdateHandlerWithParams(w http.ResponseWriter, r *http.Request, storage repository.Repository) {
+func UpdateHandlerWithParams(w http.ResponseWriter, r *http.Request, storage repository.Repository, logger *zap.SugaredLogger, fileStoragePath string, storeInterval int) {
 	metricType := chi.URLParam(r, "type")
 	metricName := chi.URLParam(r, "metric")
 	metricValue := chi.URLParam(r, "value")
@@ -122,6 +128,12 @@ func UpdateHandlerWithParams(w http.ResponseWriter, r *http.Request, storage rep
 	}
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte{})
+
+	if storeInterval == 0 {
+		if err := storage.SaveMetrics(fileStoragePath); err != nil {
+			logger.Infof("couldn't save to file %s", err)
+		}
+	}
 }
 
 func GetValue(w http.ResponseWriter, r *http.Request, storage repository.Repository) {

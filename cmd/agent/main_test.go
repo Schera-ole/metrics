@@ -18,7 +18,6 @@ func TestCollectMetrics(t *testing.T) {
 	metrics := collectMetrics(counter)
 	require.NotEmpty(t, metrics)
 
-	// Check that PollCount metric exists and has correct type
 	foundPollCount := false
 	for _, m := range metrics {
 		t.Logf("Checking metric: Name='%s', Type='%s', Value='%v'", m.Name, m.Type, m.Value)
@@ -33,7 +32,6 @@ func TestCollectMetrics(t *testing.T) {
 		}
 	}
 
-	// Ensure PollCount metric was found
 	assert.True(t, foundPollCount, "PollCount metric should be present")
 }
 
@@ -74,13 +72,11 @@ func TestSendMetric(t *testing.T) {
 
 	assert.Equal(t, len(metrics), len(receivedRequests))
 
-	// Create a map of received metrics for easier lookup
 	receivedMetricsMap := make(map[string]models.Metrics)
 	for _, receivedMetric := range receivedRequests {
 		receivedMetricsMap[receivedMetric.ID] = receivedMetric
 	}
 
-	// Verify that each metric was sent correctly
 	for _, metric := range metrics {
 		_, exists := receivedMetricsMap[metric.Name]
 		assert.True(t, exists, "Metric %s should be sent in a request", metric.Name)

@@ -26,9 +26,24 @@ func (m *MockedStorage) SetMetric(name string, val interface{}, typ string) erro
 	return m.Err
 }
 
-func (m *MockedStorage) GetMetric(metrics models.Metrics) (interface{}, error) {
+func (m *MockedStorage) GetMetricWithModels(metrics models.Metrics) (interface{}, error) {
 	// Просто заглушка
 	return nil, nil
+}
+
+func (m *MockedStorage) GetMetric(name string) (interface{}, error) {
+	// Просто заглушка
+	return nil, nil
+}
+
+func (m *MockedStorage) RestoreMetrics(fname string, logger *zap.SugaredLogger) error {
+	// Просто заглушка
+	return nil
+}
+
+func (m *MockedStorage) SaveMetrics(fname string) error {
+	// Просто заглушка
+	return nil
 }
 
 func (m *MockedStorage) DeleteMetric(name string) error {
@@ -50,7 +65,7 @@ func TestUpdateHandler(t *testing.T) {
 	logger, _ := zap.NewDevelopment()
 	defer logger.Sync()
 	logSugar := logger.Sugar()
-	ts := httptest.NewServer(Router(storage, logSugar))
+	ts := httptest.NewServer(Router(storage, logSugar, "./tmp/test_metrics.json", 0))
 	defer ts.Close()
 
 	tests := []struct {
