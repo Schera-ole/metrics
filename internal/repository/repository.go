@@ -48,8 +48,22 @@ func NewMemStorage() *MemStorage {
 func (ms *MemStorage) SetMetric(name string, value any, typ string) error {
 	switch value := value.(type) {
 	case float64:
-		ms.gauges[name] = value
-		ms.types[name] = typ
+		// Handle both float64 (from JSON) and actual float64 values
+		if typ == config.CounterType {
+			// For counters, convert float64 to int64
+			intVal := int64(value)
+			_, exists := ms.counters[name]
+			if exists {
+				ms.counters[name] += intVal
+			} else {
+				ms.counters[name] = intVal
+				ms.types[name] = typ
+			}
+		} else {
+			// For gauges, use the float64 value directly
+			ms.gauges[name] = value
+			ms.types[name] = typ
+		}
 	case int64:
 		_, exists := ms.counters[name]
 		if exists {
@@ -103,19 +117,26 @@ func (ms *MemStorage) GetMetricWithModels(metrics models.Metrics) (any, error) {
 	if !exists {
 		return nil, errors.New("metric is not found")
 	}
+
+	// Create a new metrics struct for the response to avoid modifying the input
+	responseMetrics := models.Metrics{
+		ID:    metrics.ID,
+		MType: metricType,
+	}
+
 	switch metricType {
 	case config.GaugeType:
 		if val, exists := ms.gauges[metrics.ID]; exists {
-			metrics.Value = &val
+			responseMetrics.Value = &val
 		}
 	case config.CounterType:
 		if val, exists := ms.counters[metrics.ID]; exists {
-			metrics.Delta = &val
+			responseMetrics.Delta = &val
 		}
 	default:
 		return nil, errors.New("unknown type of metric")
 	}
-	return metrics, nil
+	return responseMetrics, nil
 }
 
 func (ms *MemStorage) GetMetric(name string) (any, error) {
