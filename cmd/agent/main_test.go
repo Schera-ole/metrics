@@ -26,7 +26,7 @@ func TestCollectMetrics(t *testing.T) {
 		if m.Name == "PollCount" {
 			foundPollCount = true
 			assert.Equal(t, "counter", m.Type)
-			assert.Equal(t, int64(1), m.Value) // Should be 1 since we start with 0 and increment
+			assert.Equal(t, int64(1), m.Value)
 		} else {
 			assert.Equal(t, "gauge", m.Type)
 		}
@@ -43,7 +43,6 @@ func TestSendMetric(t *testing.T) {
 		assert.Equal(t, "application/json", r.Header.Get("Content-Type"))
 		assert.Equal(t, "gzip", r.Header.Get("Content-Encoding"))
 
-		// Decompress the gzipped body
 		gzipReader, err := gzip.NewReader(r.Body)
 		require.NoError(t, err)
 		defer gzipReader.Close()

@@ -48,9 +48,7 @@ func NewMemStorage() *MemStorage {
 func (ms *MemStorage) SetMetric(name string, value any, typ string) error {
 	switch value := value.(type) {
 	case float64:
-		// Handle both float64 (from JSON) and actual float64 values
 		if typ == config.CounterType {
-			// For counters, convert float64 to int64
 			intVal := int64(value)
 			_, exists := ms.counters[name]
 			if exists {
@@ -60,7 +58,6 @@ func (ms *MemStorage) SetMetric(name string, value any, typ string) error {
 				ms.types[name] = typ
 			}
 		} else {
-			// For gauges, use the float64 value directly
 			ms.gauges[name] = value
 			ms.types[name] = typ
 		}
@@ -118,7 +115,7 @@ func (ms *MemStorage) GetMetricWithModels(metrics models.Metrics) (any, error) {
 		return nil, errors.New("metric is not found")
 	}
 
-	// Create a new metrics struct for the response to avoid modifying the input
+	// Create a new metrics struct for the response
 	responseMetrics := models.Metrics{
 		ID:    metrics.ID,
 		MType: metricType,
@@ -170,7 +167,6 @@ func (ms *MemStorage) SaveMetrics(fname string) error {
 	encoder := json.NewEncoder(file)
 	metrics := ms.ListMetrics()
 
-	// Convert to the format we need for saving
 	var formattedMetrics []Metric
 	for _, m := range metrics {
 		typ := ms.types[m.Name]

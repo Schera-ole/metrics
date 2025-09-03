@@ -142,7 +142,6 @@ func main() {
 			err := sendMetrics(client, metrics, url)
 			if err != nil {
 				log.Printf("Error sending metrics: %v", err)
-				// Continue with the next iteration instead of fatal exit
 			}
 		default:
 			// при пустом - ничего не делаем.
