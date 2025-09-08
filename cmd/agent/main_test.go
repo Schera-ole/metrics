@@ -63,7 +63,6 @@ func TestSendMetric(t *testing.T) {
 	counter := &Counter{Value: 0}
 	metrics := collectMetrics(counter)
 
-	// Create a test HTTP client
 	client := &http.Client{}
 
 	err := sendMetrics(client, metrics, server.URL+"/update")

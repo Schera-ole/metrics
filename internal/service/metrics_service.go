@@ -52,8 +52,7 @@ func (ms *MetricsService) RestoreMetrics(fname string, logger *zap.SugaredLogger
 	}
 
 	for _, metric := range metrics {
-		// Handle type conversion for JSON restoration
-		var value any = metric.Value
+		value := metric.Value
 		if metric.Type == config.CounterType {
 			if floatValue, ok := metric.Value.(float64); ok {
 				value = int64(floatValue)

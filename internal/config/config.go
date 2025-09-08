@@ -6,7 +6,6 @@ import (
 	"strconv"
 )
 
-// ServerConfig holds the configuration for the metrics server
 type ServerConfig struct {
 	Address         string
 	StoreInterval   int
@@ -14,7 +13,6 @@ type ServerConfig struct {
 	Restore         bool
 }
 
-// NewServerConfig creates a new ServerConfig with default values and parses flags/environment variables
 func NewServerConfig() (*ServerConfig, error) {
 	config := &ServerConfig{
 		Address:         "localhost:8080",
@@ -23,14 +21,12 @@ func NewServerConfig() (*ServerConfig, error) {
 		Restore:         false,
 	}
 
-	// Parse command line flags
 	address := flag.String("a", config.Address, "address")
 	storeInterval := flag.Int("i", config.StoreInterval, "store in file interval")
 	fileStoragePath := flag.String("f", config.FileStoragePath, "path to store file")
 	restoreFlag := flag.Bool("r", config.Restore, "bool flag, describe restore metrics from file or not")
 	flag.Parse()
 
-	// Override with environment variables if set
 	envVars := map[string]*string{
 		"ADDRESS":           address,
 		"FILE_STORAGE_PATH": fileStoragePath,
@@ -58,7 +54,6 @@ func NewServerConfig() (*ServerConfig, error) {
 		*restoreFlag = restore
 	}
 
-	// Update config with parsed values
 	config.Address = *address
 	config.StoreInterval = *storeInterval
 	config.FileStoragePath = *fileStoragePath

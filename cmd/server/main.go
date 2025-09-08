@@ -29,7 +29,7 @@ func main() {
 
 	storage := repository.NewMemStorage()
 	metricsService := service.NewMetricsService(storage)
-	// Create directory if it doesn't exist
+
 	dir := filepath.Dir(serverConfig.FileStoragePath)
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		logSugar.Errorf("error creating directory: %w", err)
