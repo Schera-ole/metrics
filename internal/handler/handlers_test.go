@@ -10,8 +10,10 @@ import (
 
 	"go.uber.org/zap"
 
+	"github.com/Schera-ole/metrics/internal/config"
 	models "github.com/Schera-ole/metrics/internal/model"
 	"github.com/Schera-ole/metrics/internal/repository"
+	"github.com/Schera-ole/metrics/internal/service"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -26,7 +28,7 @@ func (m *MockedStorage) SetMetric(name string, val interface{}, typ string) erro
 	return m.Err
 }
 
-func (m *MockedStorage) GetMetricWithModels(metrics models.Metrics) (interface{}, error) {
+func (m *MockedStorage) GetMetricWithModels(metrics models.MetricsDTO) (interface{}, error) {
 	// Просто заглушка
 	return nil, nil
 }
@@ -65,7 +67,17 @@ func TestUpdateHandler(t *testing.T) {
 	logger, _ := zap.NewDevelopment()
 	defer logger.Sync()
 	logSugar := logger.Sugar()
-	ts := httptest.NewServer(Router(storage, logSugar, "./tmp/test_metrics.json", 0))
+	metricService := service.NewMetricsService(storage)
+
+	// Create a test configuration
+	testConfig := &config.ServerConfig{
+		Address:         "localhost:8080",
+		StoreInterval:   0,
+		FileStoragePath: "./tmp/test_metrics.json",
+		Restore:         false,
+	}
+
+	ts := httptest.NewServer(Router(storage, logSugar, testConfig, metricService))
 	defer ts.Close()
 
 	tests := []struct {

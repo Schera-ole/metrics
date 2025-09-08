@@ -17,18 +17,24 @@ import (
 	middlewareinternal "github.com/Schera-ole/metrics/internal/middleware"
 	models "github.com/Schera-ole/metrics/internal/model"
 	"github.com/Schera-ole/metrics/internal/repository"
+	"github.com/Schera-ole/metrics/internal/service"
 )
 
-func Router(storage *repository.MemStorage, logger *zap.SugaredLogger, fileStoragePath string, storeInterval int) chi.Router {
+func Router(
+	storage *repository.MemStorage,
+	logger *zap.SugaredLogger,
+	config *config.ServerConfig,
+	metricService *service.MetricsService,
+) chi.Router {
 	router := chi.NewRouter()
 	router.Use(middlewareinternal.LoggingMiddleware(logger))
 	router.Use(middlewareinternal.GzipMiddleware)
 	router.Use(middleware.StripSlashes)
 	router.Post("/update/{type}/{metric}/{value}", func(w http.ResponseWriter, r *http.Request) {
-		UpdateHandlerWithParams(w, r, storage, logger, fileStoragePath, storeInterval)
+		UpdateHandlerWithParams(w, r, storage, logger, config, metricService)
 	})
 	router.Post("/update", func(w http.ResponseWriter, r *http.Request) {
-		UpdateHandler(w, r, storage, logger, fileStoragePath, storeInterval)
+		UpdateHandler(w, r, storage, logger, config, metricService)
 	})
 	router.Get("/value/{type}/{name}", func(w http.ResponseWriter, r *http.Request) {
 		GetHandler(w, r, storage)
@@ -43,7 +49,14 @@ func Router(storage *repository.MemStorage, logger *zap.SugaredLogger, fileStora
 	return router
 }
 
-func UpdateHandler(w http.ResponseWriter, r *http.Request, storage repository.Repository, logger *zap.SugaredLogger, fileStoragePath string, storeInterval int) {
+func UpdateHandler(
+	w http.ResponseWriter,
+	r *http.Request,
+	storage repository.Repository,
+	logger *zap.SugaredLogger,
+	config *config.ServerConfig,
+	metricService *service.MetricsService,
+) {
 	var reader io.Reader = r.Body
 
 	if strings.Contains(r.Header.Get("Content-Encoding"), "gzip") {
@@ -56,20 +69,20 @@ func UpdateHandler(w http.ResponseWriter, r *http.Request, storage repository.Re
 		reader = gzipReader
 	}
 
-	var metrics models.Metrics
+	var metrics models.MetricsDTO
 	err := json.NewDecoder(reader).Decode(&metrics)
 	if err != nil {
 		http.Error(w, "Invalid JSON format: "+err.Error(), http.StatusBadRequest)
 		return
 	}
 	switch metrics.MType {
-	case config.GaugeType:
+	case models.Gauge:
 		if metrics.Value == nil {
 			http.Error(w, "Gauge metrics must have a value", http.StatusBadRequest)
 			return
 		}
 		err = storage.SetMetric(metrics.ID, *metrics.Value, metrics.MType)
-	case config.CounterType:
+	case models.Counter:
 		if metrics.Delta == nil {
 			http.Error(w, "Counter metrics must have a delta", http.StatusBadRequest)
 			return
@@ -86,14 +99,21 @@ func UpdateHandler(w http.ResponseWriter, r *http.Request, storage repository.Re
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte{})
 
-	if storeInterval == 0 {
-		if err := storage.SaveMetrics(fileStoragePath); err != nil {
+	if config.StoreInterval == 0 {
+		if err := metricService.SaveMetrics(config.FileStoragePath); err != nil {
 			logger.Infof("couldn't save to file %s", err)
 		}
 	}
 }
 
-func UpdateHandlerWithParams(w http.ResponseWriter, r *http.Request, storage repository.Repository, logger *zap.SugaredLogger, fileStoragePath string, storeInterval int) {
+func UpdateHandlerWithParams(
+	w http.ResponseWriter,
+	r *http.Request,
+	storage repository.Repository,
+	logger *zap.SugaredLogger,
+	config *config.ServerConfig,
+	metricService *service.MetricsService,
+) {
 	metricType := chi.URLParam(r, "type")
 	metricName := chi.URLParam(r, "metric")
 	metricValue := chi.URLParam(r, "value")
@@ -103,14 +123,14 @@ func UpdateHandlerWithParams(w http.ResponseWriter, r *http.Request, storage rep
 	}
 	var Metric any
 	switch metricType {
-	case config.GaugeType:
+	case models.Gauge:
 		floatVal, floatErr := strconv.ParseFloat(metricValue, 64)
 		if floatErr != nil {
 			http.Error(w, "Metric value should be a float", http.StatusBadRequest)
 			return
 		}
 		Metric = floatVal
-	case config.CounterType:
+	case models.Counter:
 		intVal, intErr := strconv.ParseInt(metricValue, 10, 64)
 		if intErr != nil {
 			http.Error(w, "Metric value should be an integer", http.StatusBadRequest)
@@ -129,15 +149,15 @@ func UpdateHandlerWithParams(w http.ResponseWriter, r *http.Request, storage rep
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte{})
 
-	if storeInterval == 0 {
-		if err := storage.SaveMetrics(fileStoragePath); err != nil {
+	if config.StoreInterval == 0 {
+		if err := metricService.SaveMetrics(config.FileStoragePath); err != nil {
 			logger.Infof("couldn't save to file %s", err)
 		}
 	}
 }
 
 func GetValue(w http.ResponseWriter, r *http.Request, storage repository.Repository) {
-	var metrics models.Metrics
+	var metrics models.MetricsDTO
 	err := json.NewDecoder(r.Body).Decode(&metrics)
 	if err != nil {
 		http.Error(w, "Invalid JSON format: "+err.Error(), http.StatusBadRequest)

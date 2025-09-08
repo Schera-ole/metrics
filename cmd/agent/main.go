@@ -17,7 +17,6 @@ import (
 	"time"
 
 	"github.com/Schera-ole/metrics/internal/agent"
-	"github.com/Schera-ole/metrics/internal/config"
 	models "github.com/Schera-ole/metrics/internal/model"
 )
 
@@ -34,23 +33,23 @@ func collectMetrics(counter *Counter) []agent.Metric {
 	for _, metric := range agent.RuntimeMetrics {
 		field, _ := msType.FieldByName(metric)
 		value := msValue.FieldByName(metric)
-		metrics = append(metrics, agent.Metric{Name: field.Name, Type: config.GaugeType, Value: value.Interface()})
+		metrics = append(metrics, agent.Metric{Name: field.Name, Type: models.Gauge, Value: value.Interface()})
 	}
 	counter.Value += 1
-	metrics = append(metrics, agent.Metric{Name: "RandomValue", Type: config.GaugeType, Value: rand.Float64()})
-	metrics = append(metrics, agent.Metric{Name: "PollCount", Type: config.CounterType, Value: counter.Value})
+	metrics = append(metrics, agent.Metric{Name: "RandomValue", Type: models.Gauge, Value: rand.Float64()})
+	metrics = append(metrics, agent.Metric{Name: "PollCount", Type: models.Counter, Value: counter.Value})
 
 	return metrics
 }
 
 func sendMetrics(client *http.Client, metrics []agent.Metric, url string) error {
 	for _, metric := range metrics {
-		reqMetrics := models.Metrics{
+		reqMetrics := models.MetricsDTO{
 			ID:    metric.Name,
 			MType: metric.Type,
 		}
 		switch reqMetrics.MType {
-		case config.GaugeType:
+		case models.Gauge:
 			if val, ok := metric.Value.(uint64); ok {
 				floatVal := float64(val)
 				reqMetrics.Value = &floatVal
@@ -60,7 +59,7 @@ func sendMetrics(client *http.Client, metrics []agent.Metric, url string) error 
 				floatVal := float64(val)
 				reqMetrics.Value = &floatVal
 			}
-		case config.CounterType:
+		case models.Counter:
 			if val, ok := metric.Value.(int64); ok {
 				reqMetrics.Delta = &val
 			}

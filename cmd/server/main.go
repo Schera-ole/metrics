@@ -1,24 +1,24 @@
 package main
 
 import (
-	"flag"
 	"log"
 	"net/http"
 	"os"
-	"strconv"
+	"path/filepath"
 	"time"
 
+	"github.com/Schera-ole/metrics/internal/config"
 	"github.com/Schera-ole/metrics/internal/handler"
 	"github.com/Schera-ole/metrics/internal/repository"
+	"github.com/Schera-ole/metrics/internal/service"
 	"go.uber.org/zap"
 )
 
 func main() {
-	address := flag.String("a", "localhost:8080", "address")
-	storeInterval := flag.Int("i", 300, "store in file interval")
-	fileStoragePath := flag.String("f", "./cmd/server/logs", "path to store file")
-	restoreFlag := flag.Bool("r", false, "bool flag, describe restore metrics from file or not")
-	flag.Parse()
+	serverConfig, err := config.NewServerConfig()
+	if err != nil {
+		log.Fatal("Failed to parse configuration: ", err)
+	}
 
 	logger, err := zap.NewDevelopment()
 	if err != nil {
@@ -27,48 +27,27 @@ func main() {
 	defer logger.Sync()
 	logSugar := logger.Sugar()
 
-	envVars := map[string]*string{
-		"ADDRESS":           address,
-		"FILE_STORAGE_PATH": fileStoragePath,
-	}
-
-	for envVar, flag := range envVars {
-		if envValue := os.Getenv(envVar); envValue != "" {
-			*flag = envValue
-		}
-	}
-
-	if envStoreInterval := os.Getenv("STORE_INTERVAL"); envStoreInterval != "" {
-		interval, err := strconv.Atoi(envStoreInterval)
-		if err != nil {
-			logSugar.Fatalf("Invalid value: %s", envStoreInterval)
-		}
-		*storeInterval = interval
-	}
-
-	if envRestoreFlag := os.Getenv("RESTORE"); envRestoreFlag != "" {
-		restore, err := strconv.ParseBool(envRestoreFlag)
-		if err != nil {
-			logSugar.Fatalf("Invalid value: %s", envRestoreFlag)
-		}
-		*restoreFlag = restore
-	}
-
 	storage := repository.NewMemStorage()
-
-	if *restoreFlag {
-		storage.RestoreMetrics(*fileStoragePath, logSugar)
+	metricsService := service.NewMetricsService(storage)
+	// Create directory if it doesn't exist
+	dir := filepath.Dir(serverConfig.FileStoragePath)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		logSugar.Errorf("error creating directory: %w", err)
 	}
 
-	if *storeInterval == 0 {
+	if serverConfig.Restore {
+		metricsService.RestoreMetrics(serverConfig.FileStoragePath, logSugar)
+	}
+
+	if serverConfig.StoreInterval == 0 {
 		// This will be handled in the UpdateHandler
 	} else {
-		ticker := time.NewTicker(time.Duration(*storeInterval) * time.Second)
+		ticker := time.NewTicker(time.Duration(serverConfig.StoreInterval) * time.Second)
 		defer ticker.Stop()
 
 		go func() {
 			for range ticker.C {
-				if err := storage.SaveMetrics(*fileStoragePath); err != nil {
+				if err := metricsService.SaveMetrics(serverConfig.FileStoragePath); err != nil {
 					logSugar.Errorf("Error saving metrics: %v", err)
 				} else {
 					logSugar.Info("Metrics saved to file")
@@ -79,9 +58,14 @@ func main() {
 
 	logSugar.Infow(
 		"Starting server",
-		"address", address,
-		"storeInterval", *storeInterval,
-		"fileStoragePath", *fileStoragePath,
+		"address", serverConfig.Address,
+		"storeInterval", serverConfig.StoreInterval,
+		"fileStoragePath", serverConfig.FileStoragePath,
 	)
-	logSugar.Fatal(http.ListenAndServe(*address, handler.Router(storage, logSugar, *fileStoragePath, *storeInterval)))
+	logSugar.Fatal(
+		http.ListenAndServe(
+			serverConfig.Address,
+			handler.Router(storage, logSugar, serverConfig, metricsService),
+		),
+	)
 }

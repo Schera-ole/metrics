@@ -36,7 +36,7 @@ func TestCollectMetrics(t *testing.T) {
 }
 
 func TestSendMetric(t *testing.T) {
-	var receivedRequests []models.Metrics
+	var receivedRequests []models.MetricsDTO
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, http.MethodPost, r.Method)
@@ -50,7 +50,7 @@ func TestSendMetric(t *testing.T) {
 		body, err := io.ReadAll(gzipReader)
 		require.NoError(t, err)
 
-		var receivedMetric models.Metrics
+		var receivedMetric models.MetricsDTO
 		err = json.Unmarshal(body, &receivedMetric)
 		require.NoError(t, err)
 
@@ -71,7 +71,7 @@ func TestSendMetric(t *testing.T) {
 
 	assert.Equal(t, len(metrics), len(receivedRequests))
 
-	receivedMetricsMap := make(map[string]models.Metrics)
+	receivedMetricsMap := make(map[string]models.MetricsDTO)
 	for _, receivedMetric := range receivedRequests {
 		receivedMetricsMap[receivedMetric.ID] = receivedMetric
 	}
