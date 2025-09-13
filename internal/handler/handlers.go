@@ -2,6 +2,7 @@ package handler
 
 import (
 	"compress/gzip"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -25,6 +26,7 @@ func Router(
 	logger *zap.SugaredLogger,
 	config *config.ServerConfig,
 	metricService *service.MetricsService,
+	dbConnect *sql.DB,
 ) chi.Router {
 	router := chi.NewRouter()
 	router.Use(middlewareinternal.LoggingMiddleware(logger))
@@ -42,11 +44,21 @@ func Router(
 	router.Post("/value", func(w http.ResponseWriter, r *http.Request) {
 		GetValue(w, r, storage)
 	})
-
+	router.Get("/ping", func(w http.ResponseWriter, r *http.Request) {
+		PingDatabaseHandler(w, r, dbConnect)
+	})
 	router.Get("/", func(w http.ResponseWriter, r *http.Request) {
 		GetListHandler(w, r, storage)
 	})
 	return router
+}
+
+func PingDatabaseHandler(w http.ResponseWriter, r *http.Request, dbConnect *sql.DB) {
+	err := dbConnect.Ping()
+	if err != nil {
+		http.Error(w, "Failed to connect to database: "+err.Error(), http.StatusInternalServerError)
+	}
+	w.WriteHeader(http.StatusOK)
 }
 
 func UpdateHandler(

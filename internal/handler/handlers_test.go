@@ -77,7 +77,7 @@ func TestUpdateHandler(t *testing.T) {
 		Restore:         false,
 	}
 
-	ts := httptest.NewServer(Router(storage, logSugar, testConfig, metricService))
+	ts := httptest.NewServer(Router(storage, logSugar, testConfig, metricService, nil))
 	defer ts.Close()
 
 	tests := []struct {
