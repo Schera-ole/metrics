@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"time"
 
+	"database/sql"
+
 	"github.com/Schera-ole/metrics/internal/config"
 	"github.com/Schera-ole/metrics/internal/handler"
 	"github.com/Schera-ole/metrics/internal/repository"
@@ -62,10 +64,15 @@ func main() {
 		"storeInterval", serverConfig.StoreInterval,
 		"fileStoragePath", serverConfig.FileStoragePath,
 	)
+	dbConnect, err := sql.Open("postgres", serverConfig.DatabaseDSN)
+	if err != nil {
+		logSugar.Errorf("Error when open db connection: %v", err)
+	}
+	defer dbConnect.Close()
 	logSugar.Fatal(
 		http.ListenAndServe(
 			serverConfig.Address,
-			handler.Router(storage, logSugar, serverConfig, metricsService),
+			handler.Router(storage, logSugar, serverConfig, metricsService, dbConnect),
 		),
 	)
 }
