@@ -67,9 +67,10 @@ func main() {
 	)
 	dbConnect, err := sql.Open("pgx", serverConfig.DatabaseDSN)
 	if err != nil {
-		logSugar.Errorf("Error when open db connection: %v", err)
+		logSugar.Fatalf("Error when open db connection: %v", err)
 	}
 	defer dbConnect.Close()
+
 	logSugar.Fatal(
 		http.ListenAndServe(
 			serverConfig.Address,
