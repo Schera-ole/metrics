@@ -62,6 +62,7 @@ func NewServerConfig() (*ServerConfig, error) {
 	config.StoreInterval = *storeInterval
 	config.FileStoragePath = *fileStoragePath
 	config.Restore = *restoreFlag
+	config.DatabaseDSN = *databaseDSN
 
 	return config, nil
 }
