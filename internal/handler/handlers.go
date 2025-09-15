@@ -2,6 +2,7 @@ package handler
 
 import (
 	"compress/gzip"
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -9,6 +10,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -54,7 +56,11 @@ func Router(
 }
 
 func PingDatabaseHandler(w http.ResponseWriter, r *http.Request, dbConnect *sql.DB) {
-	err := dbConnect.Ping()
+	// Create a context with timeout for the database ping
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	err := dbConnect.PingContext(ctx)
 	if err != nil {
 		http.Error(w, "Failed to connect to database: "+err.Error(), http.StatusInternalServerError)
 		return

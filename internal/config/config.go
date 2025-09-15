@@ -20,7 +20,7 @@ func NewServerConfig() (*ServerConfig, error) {
 		StoreInterval:   300,
 		FileStoragePath: "./cmd/server/logs",
 		Restore:         false,
-		DatabaseDSN:     "postgresql://schera:schera@localhost:5432/videos?sslmode=disable",
+		DatabaseDSN:     "postgresql://test:test@localhost:5432/videos?sslmode=disable",
 	}
 
 	address := flag.String("a", config.Address, "address")

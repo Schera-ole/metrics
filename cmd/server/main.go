@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"log"
 	"net/http"
 	"os"
@@ -70,6 +71,13 @@ func main() {
 		logSugar.Fatalf("Error when open db connection: %v", err)
 	}
 	defer dbConnect.Close()
+
+	// Validate database connection
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := dbConnect.PingContext(ctx); err != nil {
+		logSugar.Fatalf("Error when ping db connection: %v", err)
+	}
 
 	logSugar.Fatal(
 		http.ListenAndServe(
