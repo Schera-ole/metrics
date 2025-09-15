@@ -13,6 +13,7 @@ import (
 	"github.com/Schera-ole/metrics/internal/handler"
 	"github.com/Schera-ole/metrics/internal/repository"
 	"github.com/Schera-ole/metrics/internal/service"
+	_ "github.com/jackc/pgx/v5"
 	"go.uber.org/zap"
 )
 
@@ -64,7 +65,7 @@ func main() {
 		"storeInterval", serverConfig.StoreInterval,
 		"fileStoragePath", serverConfig.FileStoragePath,
 	)
-	dbConnect, err := sql.Open("postgres", serverConfig.DatabaseDSN)
+	dbConnect, err := sql.Open("pgx", serverConfig.DatabaseDSN)
 	if err != nil {
 		logSugar.Errorf("Error when open db connection: %v", err)
 	}
