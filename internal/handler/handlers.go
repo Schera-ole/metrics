@@ -47,7 +47,7 @@ func Router(
 		GetValue(w, r, storage)
 	})
 	router.Get("/ping", func(w http.ResponseWriter, r *http.Request) {
-		PingDatabaseHandler(w, r, dbConnect)
+		PingDatabaseHandler(w, r, logger, dbConnect)
 	})
 	router.Get("/", func(w http.ResponseWriter, r *http.Request) {
 		GetListHandler(w, r, storage)
@@ -55,13 +55,14 @@ func Router(
 	return router
 }
 
-func PingDatabaseHandler(w http.ResponseWriter, r *http.Request, dbConnect *sql.DB) {
+func PingDatabaseHandler(w http.ResponseWriter, r *http.Request, logger *zap.SugaredLogger, dbConnect *sql.DB) {
 	// Create a context with timeout for the database ping
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
 	err := dbConnect.PingContext(ctx)
 	if err != nil {
+		logger.Errorf("Database ping failed: %v", err)
 		http.Error(w, "Failed to connect to database: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
