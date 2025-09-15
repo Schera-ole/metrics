@@ -13,7 +13,7 @@ import (
 	"github.com/Schera-ole/metrics/internal/handler"
 	"github.com/Schera-ole/metrics/internal/repository"
 	"github.com/Schera-ole/metrics/internal/service"
-	_ "github.com/jackc/pgx/v5"
+	_ "github.com/jackc/pgx/v5/stdlib"
 	"go.uber.org/zap"
 )
 
