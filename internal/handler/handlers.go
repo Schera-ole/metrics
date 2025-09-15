@@ -57,6 +57,7 @@ func PingDatabaseHandler(w http.ResponseWriter, r *http.Request, dbConnect *sql.
 	err := dbConnect.Ping()
 	if err != nil {
 		http.Error(w, "Failed to connect to database: "+err.Error(), http.StatusInternalServerError)
+		return
 	}
 	w.WriteHeader(http.StatusOK)
 }
