@@ -2,12 +2,15 @@ package handler
 
 import (
 	"compress/gzip"
+	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -25,6 +28,7 @@ func Router(
 	logger *zap.SugaredLogger,
 	config *config.ServerConfig,
 	metricService *service.MetricsService,
+	dbConnect *sql.DB,
 ) chi.Router {
 	router := chi.NewRouter()
 	router.Use(middlewareinternal.LoggingMiddleware(logger))
@@ -42,11 +46,27 @@ func Router(
 	router.Post("/value", func(w http.ResponseWriter, r *http.Request) {
 		GetValue(w, r, storage)
 	})
-
+	router.Get("/ping", func(w http.ResponseWriter, r *http.Request) {
+		PingDatabaseHandler(w, r, logger, dbConnect)
+	})
 	router.Get("/", func(w http.ResponseWriter, r *http.Request) {
 		GetListHandler(w, r, storage)
 	})
 	return router
+}
+
+func PingDatabaseHandler(w http.ResponseWriter, r *http.Request, logger *zap.SugaredLogger, dbConnect *sql.DB) {
+	// Create a context with timeout for the database ping
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	err := dbConnect.PingContext(ctx)
+	if err != nil {
+		logger.Errorf("Database ping failed: %v", err)
+		http.Error(w, "Failed to connect to database: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
 }
 
 func UpdateHandler(

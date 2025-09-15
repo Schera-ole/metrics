@@ -7,10 +7,13 @@ import (
 	"path/filepath"
 	"time"
 
+	"database/sql"
+
 	"github.com/Schera-ole/metrics/internal/config"
 	"github.com/Schera-ole/metrics/internal/handler"
 	"github.com/Schera-ole/metrics/internal/repository"
 	"github.com/Schera-ole/metrics/internal/service"
+	_ "github.com/jackc/pgx/v5/stdlib"
 	"go.uber.org/zap"
 )
 
@@ -62,10 +65,23 @@ func main() {
 		"storeInterval", serverConfig.StoreInterval,
 		"fileStoragePath", serverConfig.FileStoragePath,
 	)
+	dbConnect, err := sql.Open("pgx", serverConfig.DatabaseDSN)
+	if err != nil {
+		logSugar.Fatalf("Error when open db connection: %v", err)
+	}
+	defer dbConnect.Close()
+
+	// // Validate database connection
+	// ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	// defer cancel()
+	// if err := dbConnect.PingContext(ctx); err != nil {
+	// 	logSugar.Fatalf("Error when ping db connection: %v", err)
+	// }
+
 	logSugar.Fatal(
 		http.ListenAndServe(
 			serverConfig.Address,
-			handler.Router(storage, logSugar, serverConfig, metricsService),
+			handler.Router(storage, logSugar, serverConfig, metricsService, dbConnect),
 		),
 	)
 }
