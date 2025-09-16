@@ -10,6 +10,7 @@ import (
 
 	"github.com/Schera-ole/metrics/internal/config"
 	"github.com/Schera-ole/metrics/internal/handler"
+	"github.com/Schera-ole/metrics/internal/migration"
 	"github.com/Schera-ole/metrics/internal/repository"
 	"github.com/Schera-ole/metrics/internal/service"
 	_ "github.com/jackc/pgx/v5/stdlib"
@@ -64,6 +65,12 @@ func main() {
 			}()
 		}
 	} else {
+		migCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		err = migration.RunMigrations(migCtx, serverConfig.DatabaseDSN, logSugar)
+		if err != nil {
+			logSugar.Errorf("%v", err)
+		}
 		storage, err = repository.NewDBStorage(serverConfig.DatabaseDSN)
 		if err != nil {
 			logSugar.Fatalf("Error when open db connection: %v", err)
