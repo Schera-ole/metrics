@@ -41,7 +41,8 @@ func main() {
 			logSugar.Errorf("error creating directory: %w", err)
 		}
 		if serverConfig.Restore {
-			restoreCtx, _ := context.WithTimeout(context.Background(), 10*time.Second)
+			restoreCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
 			metricsService.RestoreMetrics(restoreCtx, serverConfig.FileStoragePath, logSugar)
 		}
 		if serverConfig.StoreInterval == 0 {
@@ -52,12 +53,13 @@ func main() {
 
 			go func() {
 				for range ticker.C {
-					backupCtx, _ := context.WithTimeout(context.Background(), 10*time.Second)
+					backupCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 					if err := metricsService.SaveMetrics(backupCtx, serverConfig.FileStoragePath); err != nil {
 						logSugar.Errorf("Error saving metrics: %v", err)
 					} else {
 						logSugar.Info("Metrics saved to file")
 					}
+					cancel()
 				}
 			}()
 		}
