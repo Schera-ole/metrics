@@ -114,10 +114,10 @@ func (ms *MemStorage) GetMetricByName(ctx context.Context, name string) (any, er
 	}
 }
 
-func (storage *MemStorage) Close() error {
+func (ms *MemStorage) Close() error {
 	return nil
 }
 
-func (storage *MemStorage) Ping(ctx context.Context) error {
+func (ms *MemStorage) Ping(ctx context.Context) error {
 	return nil
 }
