@@ -2,8 +2,6 @@ package handler
 
 import (
 	"compress/gzip"
-	"context"
-	"database/sql"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -24,16 +22,16 @@ import (
 )
 
 func Router(
-	storage *repository.MemStorage,
+	storage repository.Repository,
 	logger *zap.SugaredLogger,
 	config *config.ServerConfig,
 	metricService *service.MetricsService,
-	dbConnect *sql.DB,
 ) chi.Router {
 	router := chi.NewRouter()
 	router.Use(middlewareinternal.LoggingMiddleware(logger))
 	router.Use(middlewareinternal.GzipMiddleware)
 	router.Use(middleware.StripSlashes)
+	router.Use(middleware.Timeout(10 * time.Second))
 	router.Post("/update/{type}/{metric}/{value}", func(w http.ResponseWriter, r *http.Request) {
 		UpdateHandlerWithParams(w, r, storage, logger, config, metricService)
 	})
@@ -47,7 +45,7 @@ func Router(
 		GetValue(w, r, storage)
 	})
 	router.Get("/ping", func(w http.ResponseWriter, r *http.Request) {
-		PingDatabaseHandler(w, r, logger, dbConnect)
+		PingDatabaseHandler(w, r, storage, logger)
 	})
 	router.Get("/", func(w http.ResponseWriter, r *http.Request) {
 		GetListHandler(w, r, storage)
@@ -55,14 +53,10 @@ func Router(
 	return router
 }
 
-func PingDatabaseHandler(w http.ResponseWriter, r *http.Request, logger *zap.SugaredLogger, dbConnect *sql.DB) {
-	// Create a context with timeout for the database ping
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	err := dbConnect.PingContext(ctx)
+func PingDatabaseHandler(w http.ResponseWriter, r *http.Request, storage repository.Repository, logger *zap.SugaredLogger) {
+	err := storage.Ping(r.Context())
 	if err != nil {
-		logger.Errorf("Database ping failed: %v", err)
+		logger.Errorf("%w", err)
 		http.Error(w, "Failed to connect to database: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -101,13 +95,13 @@ func UpdateHandler(
 			http.Error(w, "Gauge metrics must have a value", http.StatusBadRequest)
 			return
 		}
-		err = storage.SetMetric(metrics.ID, *metrics.Value, metrics.MType)
+		err = storage.SetMetric(r.Context(), metrics.ID, *metrics.Value, metrics.MType)
 	case models.Counter:
 		if metrics.Delta == nil {
 			http.Error(w, "Counter metrics must have a delta", http.StatusBadRequest)
 			return
 		}
-		err = storage.SetMetric(metrics.ID, *metrics.Delta, metrics.MType)
+		err = storage.SetMetric(r.Context(), metrics.ID, *metrics.Delta, metrics.MType)
 	default:
 		http.Error(w, "Invalid metric type", http.StatusBadRequest)
 		return
@@ -120,8 +114,11 @@ func UpdateHandler(
 	w.Write([]byte{})
 
 	if config.StoreInterval == 0 {
-		if err := metricService.SaveMetrics(config.FileStoragePath); err != nil {
-			logger.Infof("couldn't save to file %s", err)
+		// Only save to file if using MemStorage
+		if _, isMemStorage := storage.(*repository.MemStorage); isMemStorage {
+			if err := metricService.SaveMetrics(r.Context(), config.FileStoragePath); err != nil {
+				logger.Infof("couldn't save to file %s", err)
+			}
 		}
 	}
 }
@@ -161,7 +158,7 @@ func UpdateHandlerWithParams(
 		http.Error(w, "Invalid metric type", http.StatusBadRequest)
 		return
 	}
-	err := storage.SetMetric(metricName, Metric, metricType)
+	err := storage.SetMetric(r.Context(), metricName, Metric, metricType)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -170,8 +167,11 @@ func UpdateHandlerWithParams(
 	w.Write([]byte{})
 
 	if config.StoreInterval == 0 {
-		if err := metricService.SaveMetrics(config.FileStoragePath); err != nil {
-			logger.Infof("couldn't save to file %s", err)
+		// Only save to file if using MemStorage
+		if _, isMemStorage := storage.(*repository.MemStorage); isMemStorage {
+			if err := metricService.SaveMetrics(r.Context(), config.FileStoragePath); err != nil {
+				logger.Infof("couldn't save to file %s", err)
+			}
 		}
 	}
 }
@@ -183,7 +183,7 @@ func GetValue(w http.ResponseWriter, r *http.Request, storage repository.Reposit
 		http.Error(w, "Invalid JSON format: "+err.Error(), http.StatusBadRequest)
 		return
 	}
-	responseMetric, err := storage.GetMetricWithModels(metrics)
+	responseMetric, err := storage.GetMetric(r.Context(), metrics)
 	if err != nil {
 		http.Error(w, "Metric name not found ", http.StatusNotFound)
 		return
@@ -195,7 +195,7 @@ func GetValue(w http.ResponseWriter, r *http.Request, storage repository.Reposit
 
 func GetHandler(w http.ResponseWriter, r *http.Request, storage repository.Repository) {
 	metricName := chi.URLParam(r, "name")
-	metricValue, err := storage.GetMetric(metricName)
+	metricValue, err := storage.GetMetricByName(r.Context(), metricName)
 	if err != nil {
 		http.Error(w, "Metric name not found ", http.StatusNotFound)
 		return
@@ -205,7 +205,7 @@ func GetHandler(w http.ResponseWriter, r *http.Request, storage repository.Repos
 
 func GetListHandler(w http.ResponseWriter, r *http.Request, storage repository.Repository) {
 	var result string
-	metrics := storage.ListMetrics()
+	metrics, _ := storage.ListMetrics(r.Context())
 
 	for _, v := range metrics {
 		result += fmt.Sprintf("%s: %s\n", v.Name, v.Value)

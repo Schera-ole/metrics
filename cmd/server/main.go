@@ -1,13 +1,12 @@
 package main
 
 import (
+	"context"
 	"log"
 	"net/http"
 	"os"
 	"path/filepath"
 	"time"
-
-	"database/sql"
 
 	"github.com/Schera-ole/metrics/internal/config"
 	"github.com/Schera-ole/metrics/internal/handler"
@@ -30,33 +29,44 @@ func main() {
 	defer logger.Sync()
 	logSugar := logger.Sugar()
 
-	storage := repository.NewMemStorage()
-	metricsService := service.NewMetricsService(storage)
+	// Create repository
+	var storage repository.Repository
+	var metricsService *service.MetricsService
+	if serverConfig.DatabaseDSN == "" {
+		storage = repository.NewMemStorage()
+		metricsService = service.NewMetricsService(storage)
 
-	dir := filepath.Dir(serverConfig.FileStoragePath)
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		logSugar.Errorf("error creating directory: %w", err)
-	}
+		dir := filepath.Dir(serverConfig.FileStoragePath)
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			logSugar.Errorf("error creating directory: %w", err)
+		}
+		if serverConfig.Restore {
+			restoreCtx, _ := context.WithTimeout(context.Background(), 10*time.Second)
+			metricsService.RestoreMetrics(restoreCtx, serverConfig.FileStoragePath, logSugar)
+		}
+		if serverConfig.StoreInterval == 0 {
+			// This will be handled in the UpdateHandler
+		} else {
+			ticker := time.NewTicker(time.Duration(serverConfig.StoreInterval) * time.Second)
+			defer ticker.Stop()
 
-	if serverConfig.Restore {
-		metricsService.RestoreMetrics(serverConfig.FileStoragePath, logSugar)
-	}
-
-	if serverConfig.StoreInterval == 0 {
-		// This will be handled in the UpdateHandler
-	} else {
-		ticker := time.NewTicker(time.Duration(serverConfig.StoreInterval) * time.Second)
-		defer ticker.Stop()
-
-		go func() {
-			for range ticker.C {
-				if err := metricsService.SaveMetrics(serverConfig.FileStoragePath); err != nil {
-					logSugar.Errorf("Error saving metrics: %v", err)
-				} else {
-					logSugar.Info("Metrics saved to file")
+			go func() {
+				for range ticker.C {
+					backupCtx, _ := context.WithTimeout(context.Background(), 10*time.Second)
+					if err := metricsService.SaveMetrics(backupCtx, serverConfig.FileStoragePath); err != nil {
+						logSugar.Errorf("Error saving metrics: %v", err)
+					} else {
+						logSugar.Info("Metrics saved to file")
+					}
 				}
-			}
-		}()
+			}()
+		}
+	} else {
+		storage, err = repository.NewDBStorage(serverConfig.DatabaseDSN)
+		if err != nil {
+			logSugar.Fatalf("Error when open db connection: %v", err)
+		}
+		defer storage.Close()
 	}
 
 	logSugar.Infow(
@@ -65,23 +75,11 @@ func main() {
 		"storeInterval", serverConfig.StoreInterval,
 		"fileStoragePath", serverConfig.FileStoragePath,
 	)
-	dbConnect, err := sql.Open("pgx", serverConfig.DatabaseDSN)
-	if err != nil {
-		logSugar.Fatalf("Error when open db connection: %v", err)
-	}
-	defer dbConnect.Close()
-
-	// // Validate database connection
-	// ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	// defer cancel()
-	// if err := dbConnect.PingContext(ctx); err != nil {
-	// 	logSugar.Fatalf("Error when ping db connection: %v", err)
-	// }
 
 	logSugar.Fatal(
 		http.ListenAndServe(
 			serverConfig.Address,
-			handler.Router(storage, logSugar, serverConfig, metricsService, dbConnect),
+			handler.Router(storage, logSugar, serverConfig, metricsService),
 		),
 	)
 }

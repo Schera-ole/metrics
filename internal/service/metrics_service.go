@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -19,7 +20,8 @@ func NewMetricsService(repo repository.Repository) *MetricsService {
 	return &MetricsService{repository: repo}
 }
 
-func (ms *MetricsService) SaveMetrics(fname string) error {
+func (ms *MetricsService) SaveMetrics(ctx context.Context, fname string) error {
+
 	file, err := os.Create(fname)
 	if err != nil {
 		return fmt.Errorf("error creating file: %w", err)
@@ -27,12 +29,12 @@ func (ms *MetricsService) SaveMetrics(fname string) error {
 	defer file.Close()
 
 	encoder := json.NewEncoder(file)
-	metrics := ms.repository.ExportMetrics()
+	metrics, _ := ms.repository.ListMetrics(ctx)
 
 	return encoder.Encode(metrics)
 }
 
-func (ms *MetricsService) RestoreMetrics(fname string, logger *zap.SugaredLogger) error {
+func (ms *MetricsService) RestoreMetrics(ctx context.Context, fname string, logger *zap.SugaredLogger) error {
 	if _, err := os.Stat(fname); os.IsNotExist(err) {
 		logger.Infof("storage file not exists %s", fname)
 		return nil
@@ -58,7 +60,7 @@ func (ms *MetricsService) RestoreMetrics(fname string, logger *zap.SugaredLogger
 				value = int64(floatValue)
 			}
 		}
-		ms.repository.SetMetric(metric.Name, value, metric.Type)
+		ms.repository.SetMetric(ctx, metric.Name, value, metric.Type)
 	}
 	return nil
 }

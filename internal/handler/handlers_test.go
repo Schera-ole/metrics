@@ -2,6 +2,7 @@ package handler
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"io"
 	"net/http"
@@ -23,40 +24,37 @@ type MockedStorage struct {
 	Err             error
 }
 
-func (m *MockedStorage) SetMetric(name string, val interface{}, typ string) error {
+func (m *MockedStorage) SetMetric(ctx context.Context, name string, val interface{}, typ string) error {
 	m.SetMetricCalled = true
 	return m.Err
 }
 
-func (m *MockedStorage) GetMetricWithModels(metrics models.MetricsDTO) (interface{}, error) {
+func (m *MockedStorage) GetMetric(ctx context.Context, metrics models.MetricsDTO) (interface{}, error) {
 	// Просто заглушка
 	return nil, nil
 }
 
-func (m *MockedStorage) GetMetric(name string) (interface{}, error) {
+func (m *MockedStorage) GetMetricByName(ctx context.Context, name string) (interface{}, error) {
 	// Просто заглушка
 	return nil, nil
 }
 
-func (m *MockedStorage) RestoreMetrics(fname string, logger *zap.SugaredLogger) error {
+func (m *MockedStorage) DeleteMetric(ctx context.Context, name string) error {
 	// Просто заглушка
 	return nil
 }
 
-func (m *MockedStorage) SaveMetrics(fname string) error {
+func (m *MockedStorage) ListMetrics(ctx context.Context) ([]models.Metric, error) {
+	// Просто заглушка
+	return nil, nil
+}
+
+func (m *MockedStorage) Ping(ctx context.Context) error {
 	// Просто заглушка
 	return nil
 }
 
-func (m *MockedStorage) DeleteMetric(name string) error {
-	// Просто заглушка
-	return nil
-}
-
-func (m *MockedStorage) ListMetrics() []struct {
-	Name  string
-	Value interface{}
-} {
+func (m *MockedStorage) Close() error {
 	// Просто заглушка
 	return nil
 }
@@ -77,7 +75,7 @@ func TestUpdateHandler(t *testing.T) {
 		Restore:         false,
 	}
 
-	ts := httptest.NewServer(Router(storage, logSugar, testConfig, metricService, nil))
+	ts := httptest.NewServer(Router(storage, logSugar, testConfig, metricService))
 	defer ts.Close()
 
 	tests := []struct {
