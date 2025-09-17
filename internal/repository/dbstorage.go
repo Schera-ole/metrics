@@ -26,6 +26,48 @@ func (storage *DBStorage) Close() error {
 	return storage.db.Close()
 }
 
+func (storage *DBStorage) SetMetrics(ctx context.Context, metrics []models.Metric) error {
+	tx, err := storage.db.Begin()
+	if err != nil {
+		return fmt.Errorf("can't starting transaction: %w", err)
+	}
+	stmt_exist, err := tx.PrepareContext(ctx, "SELECT EXISTS(SELECT 1 FROM metrics WHERE name = $1)")
+	if err != nil {
+		return fmt.Errorf("error checking if metric exists: %w", err)
+	}
+	defer stmt_exist.Close()
+	for _, metric := range metrics {
+		var exists bool
+		err = stmt_exist.QueryRowContext(ctx, metric.Name).Scan(&exists)
+		if err != nil {
+			return fmt.Errorf("error checking if metric exists: %w", err)
+		}
+		if !exists {
+			query := "INSERT INTO metrics (name, type, value, created_at, updated_at) VALUES ($1, $2, $3, NOW(), NOW())"
+			_, err = tx.Exec(query, metric.Name, metric.Type, metric.Value)
+			if err != nil {
+				return fmt.Errorf("error saving metric: %w", err)
+			}
+		} else {
+			switch metric.Type {
+			case config.CounterType:
+				query := "UPDATE metrics SET value = value + $1, updated_at = NOW() where name = $2"
+				_, err := tx.ExecContext(ctx, query, metric.Name, metric.Value)
+				if err != nil {
+					return fmt.Errorf("error saving metric: %w", err)
+				}
+			case config.GaugeType:
+				query := "UPDATE metrics SET value = $1, updated_at = NOW() where name = $2"
+				_, err := tx.ExecContext(ctx, query, metric.Name, metric.Value)
+				if err != nil {
+					return fmt.Errorf("error saving metric: %w", err)
+				}
+			}
+		}
+	}
+	return nil
+}
+
 func (storage *DBStorage) SetMetric(ctx context.Context, name string, value any, typ string) error {
 	var exists bool
 	query := "SELECT EXISTS(SELECT 1 FROM metrics WHERE name = $1)"
@@ -39,19 +81,20 @@ func (storage *DBStorage) SetMetric(ctx context.Context, name string, value any,
 		if err != nil {
 			return fmt.Errorf("error saving metric: %w", err)
 		}
-	}
-	switch typ {
-	case config.CounterType:
-		query = "UPDATE metrics SET value = value + $1, updated_at = NOW() where name = $2"
-		_, err := storage.db.ExecContext(ctx, query, value, name)
-		if err != nil {
-			return fmt.Errorf("error saving metric: %w", err)
-		}
-	case config.GaugeType:
-		query = "UPDATE metrics SET value = $1, updated_at = NOW() where name = $2"
-		_, err := storage.db.ExecContext(ctx, query, value, name)
-		if err != nil {
-			return fmt.Errorf("error saving metric: %w", err)
+	} else {
+		switch typ {
+		case config.CounterType:
+			query = "UPDATE metrics SET value = value + $1, updated_at = NOW() where name = $2"
+			_, err := storage.db.ExecContext(ctx, query, value, name)
+			if err != nil {
+				return fmt.Errorf("error saving metric: %w", err)
+			}
+		case config.GaugeType:
+			query = "UPDATE metrics SET value = $1, updated_at = NOW() where name = $2"
+			_, err := storage.db.ExecContext(ctx, query, value, name)
+			if err != nil {
+				return fmt.Errorf("error saving metric: %w", err)
+			}
 		}
 	}
 	return nil

@@ -121,3 +121,24 @@ func (ms *MemStorage) Close() error {
 func (ms *MemStorage) Ping(ctx context.Context) error {
 	return nil
 }
+
+func (ms *MemStorage) SetMetrics(ctx context.Context, metrics []models.Metric) error {
+	for _, metric := range metrics {
+		switch metric.Type {
+		case config.CounterType:
+			val := metric.Value.(int64)
+			_, exists := ms.counters[metric.Name]
+			if exists {
+				ms.counters[metric.Name] += val
+			} else {
+				ms.counters[metric.Name] = val
+				ms.types[metric.Name] = metric.Type
+			}
+		case config.GaugeType:
+			val := metric.Value.(float64)
+			ms.gauges[metric.Name] = val
+			ms.types[metric.Name] = metric.Type
+		}
+	}
+	return nil
+}

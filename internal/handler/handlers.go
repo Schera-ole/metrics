@@ -38,6 +38,9 @@ func Router(
 	router.Post("/update", func(w http.ResponseWriter, r *http.Request) {
 		UpdateHandler(w, r, storage, logger, config, metricService)
 	})
+	router.Post("/updates", func(w http.ResponseWriter, r *http.Request) {
+		BatchUpdateHandler(w, r, storage, logger, config, metricService)
+	})
 	router.Get("/value/{type}/{name}", func(w http.ResponseWriter, r *http.Request) {
 		GetHandler(w, r, storage)
 	})
@@ -53,6 +56,64 @@ func Router(
 	return router
 }
 
+func BatchUpdateHandler(
+	w http.ResponseWriter,
+	r *http.Request,
+	storage repository.Repository,
+	logger *zap.SugaredLogger,
+	config *config.ServerConfig,
+	metricService *service.MetricsService,
+) {
+	var reader io.Reader = r.Body
+
+	if strings.Contains(r.Header.Get("Content-Encoding"), "gzip") {
+		gzipReader, err := gzip.NewReader(r.Body)
+		if err != nil {
+			http.Error(w, "Failed to create gzip reader: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		defer gzipReader.Close()
+		reader = gzipReader
+	}
+	var metrics []models.MetricsDTO
+	err := json.NewDecoder(reader).Decode(&metrics)
+	if err != nil {
+		http.Error(w, "Invalid JSON format: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	var preparedMetrics []models.Metric
+	for _, d := range metrics {
+		if d.Value != nil {
+			preparedMetrics = append(preparedMetrics, models.Metric{
+				Name:  d.ID,
+				Type:  d.MType,
+				Value: *d.Value,
+			})
+		}
+		if d.Delta != nil {
+			preparedMetrics = append(preparedMetrics, models.Metric{
+				Name:  d.ID,
+				Type:  d.MType,
+				Value: *d.Delta,
+			})
+		}
+	}
+	err = storage.SetMetrics(r.Context(), preparedMetrics)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+	if config.StoreInterval == 0 {
+		// Only save to file if using MemStorage
+		if _, isMemStorage := storage.(*repository.MemStorage); isMemStorage {
+			if err := metricService.SaveMetrics(r.Context(), config.FileStoragePath); err != nil {
+				logger.Infof("couldn't save to file %s", err)
+			}
+		}
+	}
+
+}
 func PingDatabaseHandler(w http.ResponseWriter, r *http.Request, storage repository.Repository, logger *zap.SugaredLogger) {
 	err := storage.Ping(r.Context())
 	if err != nil {
@@ -111,7 +172,6 @@ func UpdateHandler(
 		return
 	}
 	w.WriteHeader(http.StatusOK)
-	w.Write([]byte{})
 
 	if config.StoreInterval == 0 {
 		// Only save to file if using MemStorage
@@ -164,7 +224,6 @@ func UpdateHandlerWithParams(
 		return
 	}
 	w.WriteHeader(http.StatusOK)
-	w.Write([]byte{})
 
 	if config.StoreInterval == 0 {
 		// Only save to file if using MemStorage
@@ -201,6 +260,7 @@ func GetHandler(w http.ResponseWriter, r *http.Request, storage repository.Repos
 		return
 	}
 	fmt.Fprintf(w, "%v", metricValue)
+	w.WriteHeader(http.StatusOK)
 }
 
 func GetListHandler(w http.ResponseWriter, r *http.Request, storage repository.Repository) {
@@ -212,4 +272,5 @@ func GetListHandler(w http.ResponseWriter, r *http.Request, storage repository.R
 	}
 	w.Header().Set("Content-Type", "text/html")
 	io.WriteString(w, result)
+	w.WriteHeader(http.StatusOK)
 }

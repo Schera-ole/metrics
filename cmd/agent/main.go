@@ -43,6 +43,7 @@ func collectMetrics(counter *Counter) []agent.Metric {
 }
 
 func sendMetrics(client *http.Client, metrics []agent.Metric, url string) error {
+	var sendingData []models.MetricsDTO
 	for _, metric := range metrics {
 		reqMetrics := models.MetricsDTO{
 			ID:    metric.Name,
@@ -64,39 +65,39 @@ func sendMetrics(client *http.Client, metrics []agent.Metric, url string) error 
 				reqMetrics.Delta = &val
 			}
 		}
-		jsonData, err := json.Marshal(reqMetrics)
-		if err != nil {
-			return fmt.Errorf("error creating json")
-		}
-
-		var compressedData bytes.Buffer
-		gzipWriter := gzip.NewWriter(&compressedData)
-		if _, err := gzipWriter.Write(jsonData); err != nil {
-			return fmt.Errorf("error compressing data: %w", err)
-		}
-		if err := gzipWriter.Close(); err != nil {
-			return fmt.Errorf("error closing gzip writer: %w", err)
-		}
-
-		request, err := http.NewRequest(http.MethodPost, url, &compressedData)
-		if err != nil {
-			return fmt.Errorf("error creating request for %s", url)
-		}
-		request.Header.Set("Content-Type", "application/json")
-		request.Header.Set("Accept-Encoding", "gzip")
-		request.Header.Set("Content-Encoding", "gzip")
-
-		response, err := client.Do(request)
-		if err != nil {
-			return fmt.Errorf("error sending request for %s, %s", url, err)
-		}
-		body, err := io.ReadAll(response.Body)
-		response.Body.Close()
-		if err != nil {
-			return fmt.Errorf("error reading response body: %s", err)
-		}
-		fmt.Printf("Response: %s\n", string(body))
+		sendingData = append(sendingData, reqMetrics)
 	}
+	jsonData, err := json.Marshal(sendingData)
+	if err != nil {
+		return fmt.Errorf("error creating json")
+	}
+	var compressedData bytes.Buffer
+	gzipWriter := gzip.NewWriter(&compressedData)
+	if _, err := gzipWriter.Write(jsonData); err != nil {
+		return fmt.Errorf("error compressing data: %w", err)
+	}
+	if err := gzipWriter.Close(); err != nil {
+		return fmt.Errorf("error closing gzip writer: %w", err)
+	}
+
+	request, err := http.NewRequest(http.MethodPost, url, &compressedData)
+	if err != nil {
+		return fmt.Errorf("error creating request for %s", url)
+	}
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Accept-Encoding", "gzip")
+	request.Header.Set("Content-Encoding", "gzip")
+
+	response, err := client.Do(request)
+	if err != nil {
+		return fmt.Errorf("error sending request for %s, %s", url, err)
+	}
+	body, err := io.ReadAll(response.Body)
+	response.Body.Close()
+	if err != nil {
+		return fmt.Errorf("error reading response body: %s", err)
+	}
+	fmt.Printf("Response: %s\n", string(body))
 	return nil
 }
 
@@ -126,7 +127,7 @@ func main() {
 
 	client := &http.Client{}
 
-	url := "http://" + *address + "/update"
+	url := "http://" + *address + "/updates"
 	counter := &Counter{Value: 0}
 	metricsCh := make(chan []agent.Metric, 10)
 	go func() {
