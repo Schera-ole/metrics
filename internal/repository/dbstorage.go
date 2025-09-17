@@ -52,13 +52,13 @@ func (storage *DBStorage) SetMetrics(ctx context.Context, metrics []models.Metri
 			switch metric.Type {
 			case config.CounterType:
 				query := "UPDATE metrics SET value = value + $1, updated_at = NOW() where name = $2"
-				_, err := tx.ExecContext(ctx, query, metric.Name, metric.Value)
+				_, err := tx.ExecContext(ctx, query, metric.Value, metric.Name)
 				if err != nil {
 					return fmt.Errorf("error saving metric: %w", err)
 				}
 			case config.GaugeType:
 				query := "UPDATE metrics SET value = $1, updated_at = NOW() where name = $2"
-				_, err := tx.ExecContext(ctx, query, metric.Name, metric.Value)
+				_, err := tx.ExecContext(ctx, query, metric.Value, metric.Name)
 				if err != nil {
 					return fmt.Errorf("error saving metric: %w", err)
 				}
