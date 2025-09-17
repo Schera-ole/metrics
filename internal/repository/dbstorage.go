@@ -31,14 +31,14 @@ func (storage *DBStorage) SetMetrics(ctx context.Context, metrics []models.Metri
 	if err != nil {
 		return fmt.Errorf("can't starting transaction: %w", err)
 	}
-	stmt_exist, err := tx.PrepareContext(ctx, "SELECT EXISTS(SELECT 1 FROM metrics WHERE name = $1)")
+	stmtExist, err := tx.PrepareContext(ctx, "SELECT EXISTS(SELECT 1 FROM metrics WHERE name = $1)")
 	if err != nil {
 		return fmt.Errorf("error checking if metric exists: %w", err)
 	}
-	defer stmt_exist.Close()
+	defer stmtExist.Close()
 	for _, metric := range metrics {
 		var exists bool
-		err = stmt_exist.QueryRowContext(ctx, metric.Name).Scan(&exists)
+		err = stmtExist.QueryRowContext(ctx, metric.Name).Scan(&exists)
 		if err != nil {
 			return fmt.Errorf("error checking if metric exists: %w", err)
 		}
