@@ -65,6 +65,7 @@ func (storage *DBStorage) SetMetrics(ctx context.Context, metrics []models.Metri
 			}
 		}
 	}
+	tx.Commit()
 	return nil
 }
 

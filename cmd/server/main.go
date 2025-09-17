@@ -83,6 +83,7 @@ func main() {
 		"address", serverConfig.Address,
 		"storeInterval", serverConfig.StoreInterval,
 		"fileStoragePath", serverConfig.FileStoragePath,
+		"databaseDSN", serverConfig.DatabaseDSN,
 	)
 
 	logSugar.Fatal(
