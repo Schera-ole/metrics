@@ -259,8 +259,8 @@ func GetHandler(w http.ResponseWriter, r *http.Request, storage repository.Repos
 		http.Error(w, "Metric name not found ", http.StatusNotFound)
 		return
 	}
-	fmt.Fprintf(w, "%v", metricValue)
 	w.WriteHeader(http.StatusOK)
+	fmt.Fprintf(w, "%v", metricValue)
 }
 
 func GetListHandler(w http.ResponseWriter, r *http.Request, storage repository.Repository) {
