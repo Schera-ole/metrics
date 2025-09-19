@@ -45,7 +45,7 @@ func Router(
 		GetHandler(w, r, storage)
 	})
 	router.Post("/value", func(w http.ResponseWriter, r *http.Request) {
-		GetValue(w, r, storage)
+		GetValue(w, r, storage, logger)
 	})
 	router.Get("/ping", func(w http.ResponseWriter, r *http.Request) {
 		PingDatabaseHandler(w, r, storage, logger)
@@ -236,18 +236,21 @@ func UpdateHandlerWithParams(
 	}
 }
 
-func GetValue(w http.ResponseWriter, r *http.Request, storage repository.Repository) {
+func GetValue(w http.ResponseWriter, r *http.Request, storage repository.Repository, logger *zap.SugaredLogger) {
 	var metrics models.MetricsDTO
 	err := json.NewDecoder(r.Body).Decode(&metrics)
 	if err != nil {
 		http.Error(w, "Invalid JSON format: "+err.Error(), http.StatusBadRequest)
 		return
 	}
+	logger.Infof("Try to getting metric, %s", metrics)
 	responseMetric, err := storage.GetMetric(r.Context(), metrics)
 	if err != nil {
+		logger.Errorf("Error occured %w", err)
 		http.Error(w, "Metric name not found ", http.StatusNotFound)
 		return
 	}
+	logger.Infof("Response metric, %s", responseMetric)
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(responseMetric)
