@@ -31,7 +31,7 @@ func Router(
 	router.Use(middlewareinternal.LoggingMiddleware(logger))
 	router.Use(middlewareinternal.GzipMiddleware)
 	router.Use(middleware.StripSlashes)
-	router.Use(middleware.Timeout(10 * time.Second))
+	router.Use(middleware.Timeout(15 * time.Second))
 	router.Post("/update/{type}/{metric}/{value}", func(w http.ResponseWriter, r *http.Request) {
 		UpdateHandlerWithParams(w, r, storage, logger, config, metricService)
 	})
@@ -98,7 +98,6 @@ func BatchUpdateHandler(
 			})
 		}
 	}
-	logger.Info(preparedMetrics)
 	err = storage.SetMetrics(r.Context(), preparedMetrics)
 	if err != nil {
 		logger.Info(err)
