@@ -101,7 +101,7 @@ func (storage *DBStorage) SetMetric(ctx context.Context, name string, value any,
 	return nil
 }
 
-func (storage *DBStorage) GetMetric(ctx context.Context, metrics models.MetricsDTO) (any, error) {
+func (storage *DBStorage) GetMetric(ctx context.Context, metrics models.MetricsDTO) (models.MetricsDTO, error) {
 	var metricType string
 	var value float64
 
@@ -109,9 +109,9 @@ func (storage *DBStorage) GetMetric(ctx context.Context, metrics models.MetricsD
 	err := storage.db.QueryRowContext(ctx, query, metrics.ID).Scan(&metricType, &value)
 	if err != nil {
 		if err == sql.ErrNoRows {
-			return nil, fmt.Errorf("metric not found")
+			return models.MetricsDTO{}, fmt.Errorf("metric not found")
 		}
-		return nil, fmt.Errorf("error retrieving metric: %w", err)
+		return models.MetricsDTO{}, fmt.Errorf("error retrieving metric: %w", err)
 	}
 
 	responseMetrics := models.MetricsDTO{
@@ -126,7 +126,7 @@ func (storage *DBStorage) GetMetric(ctx context.Context, metrics models.MetricsD
 		intValue := int64(value)
 		responseMetrics.Delta = &intValue
 	default:
-		return nil, fmt.Errorf("unknown type of metric")
+		return models.MetricsDTO{}, fmt.Errorf("unknown type of metric")
 	}
 	return responseMetrics, nil
 }

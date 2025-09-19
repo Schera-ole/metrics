@@ -72,10 +72,10 @@ func (ms *MemStorage) ListMetrics(ctx context.Context) ([]models.Metric, error) 
 	return result, nil
 }
 
-func (ms *MemStorage) GetMetric(ctx context.Context, metrics models.MetricsDTO) (any, error) {
+func (ms *MemStorage) GetMetric(ctx context.Context, metrics models.MetricsDTO) (models.MetricsDTO, error) {
 	metricType, exists := ms.types[metrics.ID]
 	if !exists {
-		return nil, errors.New("metric is not found")
+		return models.MetricsDTO{}, errors.New("metric is not found")
 	}
 
 	// Create a new metrics struct for the response
@@ -94,7 +94,7 @@ func (ms *MemStorage) GetMetric(ctx context.Context, metrics models.MetricsDTO) 
 			responseMetrics.Delta = &val
 		}
 	default:
-		return nil, errors.New("unknown type of metric")
+		return models.MetricsDTO{}, errors.New("unknown type of metric")
 	}
 	return responseMetrics, nil
 }

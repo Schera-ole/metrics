@@ -31,7 +31,7 @@ func Router(
 	router.Use(middlewareinternal.LoggingMiddleware(logger))
 	router.Use(middlewareinternal.GzipMiddleware)
 	router.Use(middleware.StripSlashes)
-	router.Use(middleware.Timeout(60 * time.Second))
+	router.Use(middleware.Timeout(15 * time.Second))
 	router.Post("/update/{type}/{metric}/{value}", func(w http.ResponseWriter, r *http.Request) {
 		UpdateHandlerWithParams(w, r, storage, logger, config, metricService)
 	})
@@ -238,19 +238,20 @@ func UpdateHandlerWithParams(
 
 func GetValue(w http.ResponseWriter, r *http.Request, storage repository.Repository, logger *zap.SugaredLogger) {
 	var metrics models.MetricsDTO
+	var responseMetric models.MetricsDTO
 	err := json.NewDecoder(r.Body).Decode(&metrics)
 	if err != nil {
 		http.Error(w, "Invalid JSON format: "+err.Error(), http.StatusBadRequest)
 		return
 	}
 	logger.Infof("Try to getting metric, %s", metrics)
-	responseMetric, err := storage.GetMetric(r.Context(), metrics)
+	responseMetric, err = storage.GetMetric(r.Context(), metrics)
 	if err != nil {
 		logger.Errorf("Error occured %w", err)
 		http.Error(w, "Metric name not found ", http.StatusNotFound)
 		return
 	}
-	logger.Infof("Response metric, %s", responseMetric)
+	logger.Infof("Response metric, %s", responseMetric.Value)
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(responseMetric)
