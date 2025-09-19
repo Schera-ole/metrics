@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -19,6 +20,8 @@ import (
 
 	"github.com/Schera-ole/metrics/internal/agent"
 	models "github.com/Schera-ole/metrics/internal/model"
+	"github.com/jackc/pgerrcode"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 type Counter struct {
@@ -44,6 +47,17 @@ func collectMetrics(counter *Counter) []agent.Metric {
 }
 
 func isRetryableError(err error) bool {
+	// Check if the error is a PostgreSQL error
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) {
+		if pgErr.Code == pgerrcode.UniqueViolation {
+			return true
+		}
+		if pgerrcode.IsConnectionException(pgErr.Code) {
+			return true
+		}
+	}
+
 	// Check any network errors
 	errStr := err.Error()
 	if strings.Contains(errStr, "connection refused") ||
