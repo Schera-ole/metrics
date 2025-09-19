@@ -98,8 +98,10 @@ func BatchUpdateHandler(
 			})
 		}
 	}
+	logger.Info(preparedMetrics)
 	err = storage.SetMetrics(r.Context(), preparedMetrics)
 	if err != nil {
+		logger.Info(err)
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
