@@ -251,7 +251,7 @@ func GetValue(w http.ResponseWriter, r *http.Request, storage repository.Reposit
 		http.Error(w, "Metric name not found ", http.StatusNotFound)
 		return
 	}
-	logger.Infof("Response metric, %s", responseMetric.Value)
+	logger.Info("Response metric", zap.Float64("value", *responseMetric.Value))
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(responseMetric)
