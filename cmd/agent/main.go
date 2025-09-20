@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -14,10 +15,13 @@ import (
 	"reflect"
 	"runtime"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/Schera-ole/metrics/internal/agent"
 	models "github.com/Schera-ole/metrics/internal/model"
+	"github.com/jackc/pgerrcode"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 type Counter struct {
@@ -27,6 +31,7 @@ type Counter struct {
 func collectMetrics(counter *Counter) []agent.Metric {
 	var metrics []agent.Metric
 	var MemStats runtime.MemStats
+	runtime.GC()
 	runtime.ReadMemStats(&MemStats)
 	msValue := reflect.ValueOf(MemStats)
 	msType := msValue.Type()
@@ -42,7 +47,34 @@ func collectMetrics(counter *Counter) []agent.Metric {
 	return metrics
 }
 
+func isRetryableError(err error) bool {
+	// Check if the error is a PostgreSQL error
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) {
+		if pgErr.Code == pgerrcode.UniqueViolation {
+			return true
+		}
+		if pgerrcode.IsConnectionException(pgErr.Code) {
+			return true
+		}
+	}
+
+	// Check any network errors
+	errStr := err.Error()
+	if strings.Contains(errStr, "connection refused") ||
+		strings.Contains(errStr, "timeout") ||
+		strings.Contains(errStr, "network is unreachable") ||
+		strings.Contains(errStr, "no such host") ||
+		strings.Contains(errStr, "connection reset by peer") {
+		return true
+	}
+
+	return false
+}
+
 func sendMetrics(client *http.Client, metrics []agent.Metric, url string) error {
+	// Prepare the data to send
+	var sendingData []models.MetricsDTO
 	for _, metric := range metrics {
 		reqMetrics := models.MetricsDTO{
 			ID:    metric.Name,
@@ -64,23 +96,37 @@ func sendMetrics(client *http.Client, metrics []agent.Metric, url string) error 
 				reqMetrics.Delta = &val
 			}
 		}
-		jsonData, err := json.Marshal(reqMetrics)
-		if err != nil {
-			return fmt.Errorf("error creating json")
-		}
+		sendingData = append(sendingData, reqMetrics)
+	}
+	jsonData, err := json.Marshal(sendingData)
+	if err != nil {
+		return fmt.Errorf("error creating json")
+	}
+	var compressedData bytes.Buffer
+	gzipWriter := gzip.NewWriter(&compressedData)
+	if _, err := gzipWriter.Write(jsonData); err != nil {
+		return fmt.Errorf("error compressing data: %w", err)
+	}
+	if err := gzipWriter.Close(); err != nil {
+		return fmt.Errorf("error closing gzip writer: %w", err)
+	}
 
-		var compressedData bytes.Buffer
-		gzipWriter := gzip.NewWriter(&compressedData)
-		if _, err := gzipWriter.Write(jsonData); err != nil {
-			return fmt.Errorf("error compressing data: %w", err)
-		}
-		if err := gzipWriter.Close(); err != nil {
-			return fmt.Errorf("error closing gzip writer: %w", err)
+	delays := []time.Duration{1 * time.Second, 3 * time.Second, 5 * time.Second}
+	var lastErr error
+
+	for attempt := 0; attempt < 4; attempt++ {
+		if attempt > 0 {
+			if attempt <= len(delays) {
+				delay := delays[attempt-1]
+				fmt.Printf("Retry attempt %d after %v delay\n", attempt, delay)
+				time.Sleep(delay)
+			}
 		}
 
 		request, err := http.NewRequest(http.MethodPost, url, &compressedData)
 		if err != nil {
-			return fmt.Errorf("error creating request for %s", url)
+			lastErr = fmt.Errorf("error creating request for %s: %w", url, err)
+			continue
 		}
 		request.Header.Set("Content-Type", "application/json")
 		request.Header.Set("Accept-Encoding", "gzip")
@@ -88,16 +134,42 @@ func sendMetrics(client *http.Client, metrics []agent.Metric, url string) error 
 
 		response, err := client.Do(request)
 		if err != nil {
-			return fmt.Errorf("error sending request for %s, %s", url, err)
+			lastErr = fmt.Errorf("error sending request for %s: %w", url, err)
+			// Check if the error is retryable
+			if isRetryableError(err) {
+				fmt.Printf("Retryable error occurred: %v\n", err)
+				continue
+			} else {
+				return lastErr
+			}
 		}
+
 		body, err := io.ReadAll(response.Body)
 		response.Body.Close()
 		if err != nil {
-			return fmt.Errorf("error reading response body: %s", err)
+			lastErr = fmt.Errorf("error reading response body: %w", err)
+			continue
 		}
-		fmt.Printf("Response: %s\n", string(body))
+
+		// Check response status code and decide retry or not
+		if response.StatusCode >= 200 && response.StatusCode < 300 {
+			fmt.Printf("Response: %s\n", string(body))
+			return nil
+		} else {
+			lastErr = fmt.Errorf("server returned error status %d: %s", response.StatusCode, string(body))
+			// Think, that for 5xx errors, we should retry request
+			if response.StatusCode >= 500 && response.StatusCode < 600 {
+				fmt.Printf("Server error (5xx), will retry: %v\n", lastErr)
+				continue
+			} else {
+				// For other errors, don't retry
+				return lastErr
+			}
+		}
 	}
-	return nil
+
+	// Failed
+	return fmt.Errorf("failed to send metrics after 4 attempts: %w", lastErr)
 }
 
 func main() {
@@ -126,7 +198,7 @@ func main() {
 
 	client := &http.Client{}
 
-	url := "http://" + *address + "/update"
+	url := "http://" + *address + "/updates"
 	counter := &Counter{Value: 0}
 	metricsCh := make(chan []agent.Metric, 10)
 	go func() {
@@ -143,7 +215,7 @@ func main() {
 				log.Printf("Error sending metrics: %v", err)
 			}
 		default:
-			// при пустом - ничего не делаем.
+			// if empry - nothing to do
 		}
 		time.Sleep(time.Duration(*reportInterval) * time.Second)
 	}
