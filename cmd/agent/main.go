@@ -31,6 +31,7 @@ type Counter struct {
 func collectMetrics(counter *Counter) []agent.Metric {
 	var metrics []agent.Metric
 	var MemStats runtime.MemStats
+	runtime.GC()
 	runtime.ReadMemStats(&MemStats)
 	msValue := reflect.ValueOf(MemStats)
 	msType := msValue.Type()
