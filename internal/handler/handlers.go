@@ -320,6 +320,26 @@ func GetValue(w http.ResponseWriter, r *http.Request, metricService *service.Met
 	}
 	r.Body.Close()
 
+	// Handle decompression if needed
+	var processData []byte
+	if strings.Contains(r.Header.Get("Content-Encoding"), "gzip") {
+		gzipReader, err := gzip.NewReader(bytes.NewReader(body))
+		if err != nil {
+			http.Error(w, "Failed to create gzip reader: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+		defer gzipReader.Close()
+
+		decompressedData, err := io.ReadAll(gzipReader)
+		if err != nil {
+			http.Error(w, "Failed to decompress data: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+		processData = decompressedData
+	} else {
+		processData = body
+	}
+
 	// Hash verification for request
 	if config.Key != "" {
 		headerHash := r.Header.Get("HashSHA256")
@@ -340,7 +360,7 @@ func GetValue(w http.ResponseWriter, r *http.Request, metricService *service.Met
 		}
 	}
 
-	var reader io.Reader = bytes.NewReader(body)
+	var reader io.Reader = bytes.NewReader(processData)
 
 	err = json.NewDecoder(reader).Decode(&metrics)
 	if err != nil {
@@ -362,9 +382,11 @@ func GetValue(w http.ResponseWriter, r *http.Request, metricService *service.Met
 	w.Header().Set("Content-Type", "application/json")
 
 	// Encode response metric to get the data that will be sent
-	var responseBuffer bytes.Buffer
-	json.NewEncoder(&responseBuffer).Encode(responseMetric)
-	responseData := responseBuffer.Bytes()
+	responseData, err := json.Marshal(responseMetric)
+	if err != nil {
+		http.Error(w, "Failed to marshal response", http.StatusInternalServerError)
+		return
+	}
 
 	// Generate hash of response data if key is configured
 	if config.Key != "" {

@@ -21,7 +21,7 @@ func NewServerConfig() (*ServerConfig, error) {
 		StoreInterval:   300,
 		FileStoragePath: "./cmd/server/logs",
 		Restore:         false,
-		DatabaseDSN:     "",
+		DatabaseDSN:     "postgresql://schera:schera@localhost:5432/videos?sslmode=disable",
 		Key:             "",
 	}
 
