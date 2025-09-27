@@ -37,6 +37,7 @@ func TestCollectMetrics(t *testing.T) {
 
 func TestSendMetric(t *testing.T) {
 	var receivedMetrics []models.MetricsDTO
+	var key string
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, http.MethodPost, r.Method)
@@ -65,7 +66,7 @@ func TestSendMetric(t *testing.T) {
 
 	client := &http.Client{}
 
-	err := sendMetrics(client, metrics, server.URL+"/update")
+	err := sendMetrics(client, metrics, server.URL+"/update", key)
 	require.NoError(t, err)
 
 	// We should receive exactly one request with all metrics
