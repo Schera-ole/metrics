@@ -36,7 +36,7 @@ func TestCollectMetrics(t *testing.T) {
 }
 
 func TestSendMetric(t *testing.T) {
-	var receivedRequests []models.MetricsDTO
+	var receivedMetrics []models.MetricsDTO
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, http.MethodPost, r.Method)
@@ -50,11 +50,11 @@ func TestSendMetric(t *testing.T) {
 		body, err := io.ReadAll(gzipReader)
 		require.NoError(t, err)
 
-		var receivedMetric models.MetricsDTO
-		err = json.Unmarshal(body, &receivedMetric)
+		var receivedMetricsBatch []models.MetricsDTO
+		err = json.Unmarshal(body, &receivedMetricsBatch)
 		require.NoError(t, err)
 
-		receivedRequests = append(receivedRequests, receivedMetric)
+		receivedMetrics = append(receivedMetrics, receivedMetricsBatch...)
 
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -68,10 +68,11 @@ func TestSendMetric(t *testing.T) {
 	err := sendMetrics(client, metrics, server.URL+"/update")
 	require.NoError(t, err)
 
-	assert.Equal(t, len(metrics), len(receivedRequests))
+	// We should receive exactly one request with all metrics
+	assert.Equal(t, len(metrics), len(receivedMetrics))
 
 	receivedMetricsMap := make(map[string]models.MetricsDTO)
-	for _, receivedMetric := range receivedRequests {
+	for _, receivedMetric := range receivedMetrics {
 		receivedMetricsMap[receivedMetric.ID] = receivedMetric
 	}
 
