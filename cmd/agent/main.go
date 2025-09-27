@@ -197,7 +197,7 @@ func main() {
 	reportInterval := flag.Int("r", 10, "The frequency of sending metrics to the server")
 	pollInterval := flag.Int("p", 2, "The frequency of polling metrics from the package")
 	address := flag.String("a", "localhost:8080", "Address for sending metrics")
-	hashKey := flag.String("k", "", "Key for hash")
+	key := flag.String("k", "", "Key for hash")
 	flag.Parse()
 	envIntVars := map[string]*int{
 		"REPORT_INTERVAL": reportInterval,
@@ -205,8 +205,8 @@ func main() {
 	}
 
 	envStrVars := map[string]*string{
-		"ADDRESS":  address,
-		"HASH_KEY": hashKey,
+		"ADDRESS": address,
+		"KEY":     key,
 	}
 
 	for envVar, flag := range envIntVars {
@@ -239,7 +239,7 @@ func main() {
 	for {
 		select {
 		case metrics := <-metricsCh:
-			err := sendMetrics(client, metrics, url, *hashKey)
+			err := sendMetrics(client, metrics, url, *key)
 			if err != nil {
 				log.Printf("Error sending metrics: %v", err)
 			}

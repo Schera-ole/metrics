@@ -22,7 +22,7 @@ func NewServerConfig() (*ServerConfig, error) {
 		FileStoragePath: "./cmd/server/logs",
 		Restore:         false,
 		DatabaseDSN:     "",
-		HashKey:         "",
+		Key:             "",
 	}
 
 	address := flag.String("a", config.Address, "address")
@@ -30,14 +30,14 @@ func NewServerConfig() (*ServerConfig, error) {
 	fileStoragePath := flag.String("f", config.FileStoragePath, "path to store file")
 	restoreFlag := flag.Bool("r", config.Restore, "bool flag, describe restore metrics from file or not")
 	databaseDSN := flag.String("d", config.DatabaseDSN, "database dsn")
-	hashKey := flag.String("k", "", "Key for hash")
+	key := flag.String("k", "", "Key for hash")
 	flag.Parse()
 
 	envVars := map[string]*string{
 		"ADDRESS":           address,
 		"FILE_STORAGE_PATH": fileStoragePath,
 		"DATABASE_DSN":      databaseDSN,
-		"HASH_KEY":          hashKey,
+		"KEY":               key,
 	}
 
 	for envVar, flag := range envVars {
@@ -67,7 +67,7 @@ func NewServerConfig() (*ServerConfig, error) {
 	config.FileStoragePath = *fileStoragePath
 	config.Restore = *restoreFlag
 	config.DatabaseDSN = *databaseDSN
-	config.Key = *hashKey
+	config.Key = *key
 
 	return config, nil
 }
