@@ -2,9 +2,9 @@ package repository
 
 import (
 	"context"
-	"errors"
 
 	"github.com/Schera-ole/metrics/internal/config"
+	internalerrors "github.com/Schera-ole/metrics/internal/errors"
 	models "github.com/Schera-ole/metrics/internal/model"
 )
 
@@ -75,7 +75,7 @@ func (ms *MemStorage) ListMetrics(ctx context.Context) ([]models.Metric, error) 
 func (ms *MemStorage) GetMetric(ctx context.Context, metrics models.MetricsDTO) (models.MetricsDTO, error) {
 	metricType, exists := ms.types[metrics.ID]
 	if !exists {
-		return models.MetricsDTO{}, errors.New("metric is not found")
+		return models.MetricsDTO{}, internalerrors.ErrMetricNotFound
 	}
 
 	// Create a new metrics struct for the response
@@ -94,7 +94,7 @@ func (ms *MemStorage) GetMetric(ctx context.Context, metrics models.MetricsDTO) 
 			responseMetrics.Delta = &val
 		}
 	default:
-		return models.MetricsDTO{}, errors.New("unknown type of metric")
+		return models.MetricsDTO{}, internalerrors.ErrUnknownMetricType
 	}
 	return responseMetrics, nil
 }
@@ -102,7 +102,7 @@ func (ms *MemStorage) GetMetric(ctx context.Context, metrics models.MetricsDTO) 
 func (ms *MemStorage) GetMetricByName(ctx context.Context, name string) (any, error) {
 	metricType, exists := ms.types[name]
 	if !exists {
-		return nil, errors.New("metric is not found")
+		return nil, internalerrors.ErrMetricNotFound
 	}
 	switch metricType {
 	case config.GaugeType:
@@ -110,7 +110,7 @@ func (ms *MemStorage) GetMetricByName(ctx context.Context, name string) (any, er
 	case config.CounterType:
 		return ms.counters[name], nil
 	default:
-		return nil, errors.New("unknown type of metric")
+		return nil, internalerrors.ErrUnknownMetricType
 	}
 }
 

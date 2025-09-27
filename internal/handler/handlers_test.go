@@ -29,9 +29,14 @@ func (m *MockedStorage) SetMetric(ctx context.Context, name string, val interfac
 	return m.Err
 }
 
-func (m *MockedStorage) GetMetric(ctx context.Context, metrics models.MetricsDTO) (interface{}, error) {
+func (m *MockedStorage) SetMetrics(ctx context.Context, metrics []models.Metric) error {
 	// Просто заглушка
-	return nil, nil
+	return nil
+}
+
+func (m *MockedStorage) GetMetric(ctx context.Context, metrics models.MetricsDTO) (models.MetricsDTO, error) {
+	// Просто заглушка
+	return models.MetricsDTO{}, nil
 }
 
 func (m *MockedStorage) GetMetricByName(ctx context.Context, name string) (interface{}, error) {
@@ -75,7 +80,7 @@ func TestUpdateHandler(t *testing.T) {
 		Restore:         false,
 	}
 
-	ts := httptest.NewServer(Router(storage, logSugar, testConfig, metricService))
+	ts := httptest.NewServer(Router(logSugar, testConfig, metricService))
 	defer ts.Close()
 
 	tests := []struct {

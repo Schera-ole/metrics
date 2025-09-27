@@ -89,7 +89,7 @@ func main() {
 	logSugar.Fatal(
 		http.ListenAndServe(
 			serverConfig.Address,
-			handler.Router(storage, logSugar, serverConfig, metricsService),
+			handler.Router(logSugar, serverConfig, metricsService),
 		),
 	)
 }

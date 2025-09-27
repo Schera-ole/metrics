@@ -15,14 +15,13 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/Schera-ole/metrics/internal/config"
+	internalerrors "github.com/Schera-ole/metrics/internal/errors"
 	middlewareinternal "github.com/Schera-ole/metrics/internal/middleware"
 	models "github.com/Schera-ole/metrics/internal/model"
-	"github.com/Schera-ole/metrics/internal/repository"
 	"github.com/Schera-ole/metrics/internal/service"
 )
 
 func Router(
-	storage repository.Repository,
 	logger *zap.SugaredLogger,
 	config *config.ServerConfig,
 	metricService *service.MetricsService,
@@ -33,25 +32,25 @@ func Router(
 	router.Use(middleware.StripSlashes)
 	router.Use(middleware.Timeout(15 * time.Second))
 	router.Post("/update/{type}/{metric}/{value}", func(w http.ResponseWriter, r *http.Request) {
-		UpdateHandlerWithParams(w, r, storage, logger, config, metricService)
+		UpdateHandlerWithParams(w, r, logger, config, metricService)
 	})
 	router.Post("/update", func(w http.ResponseWriter, r *http.Request) {
-		UpdateHandler(w, r, storage, logger, config, metricService)
+		UpdateHandler(w, r, logger, config, metricService)
 	})
 	router.Post("/updates", func(w http.ResponseWriter, r *http.Request) {
-		BatchUpdateHandler(w, r, storage, logger, config, metricService)
+		BatchUpdateHandler(w, r, logger, config, metricService)
 	})
 	router.Get("/value/{type}/{name}", func(w http.ResponseWriter, r *http.Request) {
-		GetHandler(w, r, storage)
+		GetHandler(w, r, metricService)
 	})
 	router.Post("/value", func(w http.ResponseWriter, r *http.Request) {
-		GetValue(w, r, storage, logger)
+		GetValue(w, r, metricService, logger)
 	})
 	router.Get("/ping", func(w http.ResponseWriter, r *http.Request) {
-		PingDatabaseHandler(w, r, storage, logger)
+		PingDatabaseHandler(w, r, metricService, logger)
 	})
 	router.Get("/", func(w http.ResponseWriter, r *http.Request) {
-		GetListHandler(w, r, storage)
+		GetListHandler(w, r, metricService)
 	})
 	return router
 }
@@ -59,7 +58,6 @@ func Router(
 func BatchUpdateHandler(
 	w http.ResponseWriter,
 	r *http.Request,
-	storage repository.Repository,
 	logger *zap.SugaredLogger,
 	config *config.ServerConfig,
 	metricService *service.MetricsService,
@@ -69,7 +67,7 @@ func BatchUpdateHandler(
 	if strings.Contains(r.Header.Get("Content-Encoding"), "gzip") {
 		gzipReader, err := gzip.NewReader(r.Body)
 		if err != nil {
-			http.Error(w, "Failed to create gzip reader: "+err.Error(), http.StatusInternalServerError)
+			http.Error(w, "Failed to create gzip reader: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 		defer gzipReader.Close()
@@ -98,16 +96,16 @@ func BatchUpdateHandler(
 			})
 		}
 	}
-	err = storage.SetMetrics(r.Context(), preparedMetrics)
+	err = metricService.SetMetrics(r.Context(), preparedMetrics)
 	if err != nil {
 		logger.Info(err)
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 	w.WriteHeader(http.StatusOK)
 	if config.StoreInterval == 0 {
 		// Only save to file if using MemStorage
-		if _, isMemStorage := storage.(*repository.MemStorage); isMemStorage {
+		if metricService.IsMemStorage() {
 			if err := metricService.SaveMetrics(r.Context(), config.FileStoragePath); err != nil {
 				logger.Infof("couldn't save to file %s", err)
 			}
@@ -115,11 +113,11 @@ func BatchUpdateHandler(
 	}
 
 }
-func PingDatabaseHandler(w http.ResponseWriter, r *http.Request, storage repository.Repository, logger *zap.SugaredLogger) {
-	err := storage.Ping(r.Context())
+func PingDatabaseHandler(w http.ResponseWriter, r *http.Request, metricService *service.MetricsService, logger *zap.SugaredLogger) {
+	err := metricService.Ping(r.Context())
 	if err != nil {
 		logger.Errorf("%w", err)
-		http.Error(w, "Failed to connect to database: "+err.Error(), http.StatusInternalServerError)
+		http.Error(w, internalerrors.ErrDatabaseConnection.Error()+": "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 	w.WriteHeader(http.StatusOK)
@@ -128,7 +126,6 @@ func PingDatabaseHandler(w http.ResponseWriter, r *http.Request, storage reposit
 func UpdateHandler(
 	w http.ResponseWriter,
 	r *http.Request,
-	storage repository.Repository,
 	logger *zap.SugaredLogger,
 	config *config.ServerConfig,
 	metricService *service.MetricsService,
@@ -157,13 +154,13 @@ func UpdateHandler(
 			http.Error(w, "Gauge metrics must have a value", http.StatusBadRequest)
 			return
 		}
-		err = storage.SetMetric(r.Context(), metrics.ID, *metrics.Value, metrics.MType)
+		err = metricService.SetMetric(r.Context(), metrics.ID, *metrics.Value, metrics.MType)
 	case models.Counter:
 		if metrics.Delta == nil {
 			http.Error(w, "Counter metrics must have a delta", http.StatusBadRequest)
 			return
 		}
-		err = storage.SetMetric(r.Context(), metrics.ID, *metrics.Delta, metrics.MType)
+		err = metricService.SetMetric(r.Context(), metrics.ID, *metrics.Delta, metrics.MType)
 	default:
 		http.Error(w, "Invalid metric type", http.StatusBadRequest)
 		return
@@ -176,7 +173,7 @@ func UpdateHandler(
 
 	if config.StoreInterval == 0 {
 		// Only save to file if using MemStorage
-		if _, isMemStorage := storage.(*repository.MemStorage); isMemStorage {
+		if metricService.IsMemStorage() {
 			if err := metricService.SaveMetrics(r.Context(), config.FileStoragePath); err != nil {
 				logger.Infof("couldn't save to file %s", err)
 			}
@@ -187,7 +184,6 @@ func UpdateHandler(
 func UpdateHandlerWithParams(
 	w http.ResponseWriter,
 	r *http.Request,
-	storage repository.Repository,
 	logger *zap.SugaredLogger,
 	config *config.ServerConfig,
 	metricService *service.MetricsService,
@@ -196,7 +192,7 @@ func UpdateHandlerWithParams(
 	metricName := chi.URLParam(r, "metric")
 	metricValue := chi.URLParam(r, "value")
 	if metricName == "" {
-		http.Error(w, "Metric name not found ", http.StatusNotFound)
+		http.Error(w, internalerrors.ErrMetricNotFound.Error(), http.StatusNotFound)
 		return
 	}
 	var Metric any
@@ -219,7 +215,7 @@ func UpdateHandlerWithParams(
 		http.Error(w, "Invalid metric type", http.StatusBadRequest)
 		return
 	}
-	err := storage.SetMetric(r.Context(), metricName, Metric, metricType)
+	err := metricService.SetMetric(r.Context(), metricName, Metric, metricType)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -228,7 +224,7 @@ func UpdateHandlerWithParams(
 
 	if config.StoreInterval == 0 {
 		// Only save to file if using MemStorage
-		if _, isMemStorage := storage.(*repository.MemStorage); isMemStorage {
+		if metricService.IsMemStorage() {
 			if err := metricService.SaveMetrics(r.Context(), config.FileStoragePath); err != nil {
 				logger.Infof("couldn't save to file %s", err)
 			}
@@ -236,7 +232,7 @@ func UpdateHandlerWithParams(
 	}
 }
 
-func GetValue(w http.ResponseWriter, r *http.Request, storage repository.Repository, logger *zap.SugaredLogger) {
+func GetValue(w http.ResponseWriter, r *http.Request, metricService *service.MetricsService, logger *zap.SugaredLogger) {
 	var metrics models.MetricsDTO
 	var responseMetric models.MetricsDTO
 	err := json.NewDecoder(r.Body).Decode(&metrics)
@@ -245,10 +241,10 @@ func GetValue(w http.ResponseWriter, r *http.Request, storage repository.Reposit
 		return
 	}
 	logger.Infof("Try to getting metric, %s", metrics)
-	responseMetric, err = storage.GetMetric(r.Context(), metrics)
+	responseMetric, err = metricService.GetMetric(r.Context(), metrics)
 	if err != nil {
 		logger.Errorf("Error occured %w", err)
-		http.Error(w, "Metric name not found ", http.StatusNotFound)
+		http.Error(w, internalerrors.ErrMetricNotFound.Error(), http.StatusNotFound)
 		return
 	}
 	if responseMetric.Value != nil {
@@ -259,20 +255,20 @@ func GetValue(w http.ResponseWriter, r *http.Request, storage repository.Reposit
 	json.NewEncoder(w).Encode(responseMetric)
 }
 
-func GetHandler(w http.ResponseWriter, r *http.Request, storage repository.Repository) {
+func GetHandler(w http.ResponseWriter, r *http.Request, metricService *service.MetricsService) {
 	metricName := chi.URLParam(r, "name")
-	metricValue, err := storage.GetMetricByName(r.Context(), metricName)
+	metricValue, err := metricService.GetMetricByName(r.Context(), metricName)
 	if err != nil {
-		http.Error(w, "Metric name not found ", http.StatusNotFound)
+		http.Error(w, internalerrors.ErrMetricNotFound.Error(), http.StatusNotFound)
 		return
 	}
 	w.WriteHeader(http.StatusOK)
 	fmt.Fprintf(w, "%v", metricValue)
 }
 
-func GetListHandler(w http.ResponseWriter, r *http.Request, storage repository.Repository) {
+func GetListHandler(w http.ResponseWriter, r *http.Request, metricService *service.MetricsService) {
 	var result string
-	metrics, _ := storage.ListMetrics(r.Context())
+	metrics, _ := metricService.ListMetrics(r.Context())
 
 	for _, v := range metrics {
 		result += fmt.Sprintf("%s: %s\n", v.Name, v.Value)
