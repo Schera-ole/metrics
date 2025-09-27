@@ -75,6 +75,7 @@ func main() {
 		if err != nil {
 			logSugar.Fatalf("Error when open db connection: %v", err)
 		}
+		metricsService = service.NewMetricsService(storage)
 		defer storage.Close()
 	}
 
