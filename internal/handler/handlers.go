@@ -5,6 +5,7 @@ import (
 	"compress/gzip"
 	"crypto/hmac"
 	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -99,8 +100,13 @@ func BatchUpdateHandler(
 			return
 		}
 		calculatedHash := calculatedHash(body, config.Key) // Hash the original data
-		headerHashBytes := []byte(headerHash)
-		if !bytes.Equal(headerHashBytes, calculatedHash) { // Fixed the logic (!)
+		// Convert headerHash from hex string to bytes for comparison
+		headerHashBytes, err := hex.DecodeString(headerHash)
+		if err != nil {
+			http.Error(w, "Invalid hash format", http.StatusBadRequest)
+			return
+		}
+		if !bytes.Equal(headerHashBytes, calculatedHash) {
 			http.Error(w, "Hash mismatch", http.StatusBadRequest)
 			return
 		}
@@ -200,7 +206,12 @@ func UpdateHandler(
 			return
 		}
 		calculatedHash := calculatedHash(body, config.Key) // Hash the original data
-		headerHashBytes := []byte(headerHash)
+		// Convert headerHash from hex string to bytes for comparison
+		headerHashBytes, err := hex.DecodeString(headerHash)
+		if err != nil {
+			http.Error(w, "Invalid hash format", http.StatusBadRequest)
+			return
+		}
 		if !bytes.Equal(headerHashBytes, calculatedHash) {
 			http.Error(w, "Hash mismatch", http.StatusBadRequest)
 			return
@@ -317,7 +328,12 @@ func GetValue(w http.ResponseWriter, r *http.Request, metricService *service.Met
 			return
 		}
 		calculatedHash := calculatedHash(body, config.Key) // Hash the original data
-		headerHashBytes := []byte(headerHash)
+		// Convert headerHash from hex string to bytes for comparison
+		headerHashBytes, err := hex.DecodeString(headerHash)
+		if err != nil {
+			http.Error(w, "Invalid hash format", http.StatusBadRequest)
+			return
+		}
 		if !bytes.Equal(headerHashBytes, calculatedHash) {
 			http.Error(w, "Hash mismatch", http.StatusBadRequest)
 			return
@@ -353,7 +369,7 @@ func GetValue(w http.ResponseWriter, r *http.Request, metricService *service.Met
 	// Generate hash of response data if key is configured
 	if config.Key != "" {
 		responseHash := calculatedHash(responseData, config.Key)
-		w.Header().Set("HashSHA256", string(responseHash))
+		w.Header().Set("HashSHA256", fmt.Sprintf("%x", responseHash))
 	}
 
 	// Write response

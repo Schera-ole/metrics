@@ -81,10 +81,15 @@ func countHash(compressedBody []byte, key string) []byte {
 	return h.Sum(nil)
 }
 
+func countHashString(compressedBody []byte, key string) string {
+	hash := countHash(compressedBody, key)
+	return fmt.Sprintf("%x", hash)
+}
+
 func sendMetrics(client *http.Client, metrics []agent.Metric, url string, key string) error {
 	// Prepare the data to send
 	var sendingData []models.MetricsDTO
-	var hash []byte
+	var hash string
 	for _, metric := range metrics {
 		reqMetrics := models.MetricsDTO{
 			ID:    metric.Name,
@@ -121,7 +126,7 @@ func sendMetrics(client *http.Client, metrics []agent.Metric, url string, key st
 		return fmt.Errorf("error closing gzip writer: %w", err)
 	}
 	if key != "" {
-		hash = countHash(compressedData.Bytes(), key)
+		hash = countHashString(compressedData.Bytes(), key)
 	}
 
 	delays := []time.Duration{1 * time.Second, 3 * time.Second, 5 * time.Second}
@@ -145,7 +150,7 @@ func sendMetrics(client *http.Client, metrics []agent.Metric, url string, key st
 		request.Header.Set("Accept-Encoding", "gzip")
 		request.Header.Set("Content-Encoding", "gzip")
 		if key != "" {
-			request.Header.Set("HashSHA256", string(hash))
+			request.Header.Set("HashSHA256", hash)
 		}
 
 		response, err := client.Do(request)
@@ -192,7 +197,7 @@ func main() {
 	reportInterval := flag.Int("r", 10, "The frequency of sending metrics to the server")
 	pollInterval := flag.Int("p", 2, "The frequency of polling metrics from the package")
 	address := flag.String("a", "localhost:8080", "Address for sending metrics")
-	key := flag.String("k", "", "Key for hash")
+	hashKey := flag.String("k", "", "Key for hash")
 	flag.Parse()
 	envIntVars := map[string]*int{
 		"REPORT_INTERVAL": reportInterval,
@@ -200,8 +205,8 @@ func main() {
 	}
 
 	envStrVars := map[string]*string{
-		"ADDRESS": address,
-		"KEY":     key,
+		"ADDRESS":  address,
+		"HASH_KEY": hashKey,
 	}
 
 	for envVar, flag := range envIntVars {
@@ -234,7 +239,7 @@ func main() {
 	for {
 		select {
 		case metrics := <-metricsCh:
-			err := sendMetrics(client, metrics, url, *key)
+			err := sendMetrics(client, metrics, url, *hashKey)
 			if err != nil {
 				log.Printf("Error sending metrics: %v", err)
 			}
