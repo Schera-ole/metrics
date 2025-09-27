@@ -201,20 +201,22 @@ func UpdateHandler(
 	// Hash verification
 	if config.Key != "" {
 		headerHash := r.Header.Get("HashSHA256")
-		if headerHash == "" {
-			http.Error(w, "Hash header is missing", http.StatusBadRequest)
-			return
-		}
-		calculatedHash := calculatedHash(body, config.Key) // Hash the original data
-		// Convert headerHash from hex string to bytes for comparison
-		headerHashBytes, err := hex.DecodeString(headerHash)
-		if err != nil {
-			http.Error(w, "Invalid hash format", http.StatusBadRequest)
-			return
-		}
-		if !bytes.Equal(headerHashBytes, calculatedHash) {
-			http.Error(w, "Hash mismatch", http.StatusBadRequest)
-			return
+		// if headerHash == "" {
+		// 	http.Error(w, "Hash header is missing", http.StatusBadRequest)
+		// 	return
+		// }
+		if headerHash != "" {
+			calculatedHash := calculatedHash(body, config.Key) // Hash the original data
+			// Convert headerHash from hex string to bytes for comparison
+			headerHashBytes, err := hex.DecodeString(headerHash)
+			if err != nil {
+				http.Error(w, "Invalid hash format", http.StatusBadRequest)
+				return
+			}
+			if !bytes.Equal(headerHashBytes, calculatedHash) {
+				http.Error(w, "Hash mismatch", http.StatusBadRequest)
+				return
+			}
 		}
 	}
 
@@ -343,20 +345,22 @@ func GetValue(w http.ResponseWriter, r *http.Request, metricService *service.Met
 	// Hash verification for request
 	if config.Key != "" {
 		headerHash := r.Header.Get("HashSHA256")
-		if headerHash == "" {
-			http.Error(w, "Hash header is missing", http.StatusBadRequest)
-			return
-		}
-		calculatedHash := calculatedHash(body, config.Key) // Hash the original data
-		// Convert headerHash from hex string to bytes for comparison
-		headerHashBytes, err := hex.DecodeString(headerHash)
-		if err != nil {
-			http.Error(w, "Invalid hash format", http.StatusBadRequest)
-			return
-		}
-		if !bytes.Equal(headerHashBytes, calculatedHash) {
-			http.Error(w, "Hash mismatch", http.StatusBadRequest)
-			return
+		// if headerHash == "" {
+		// 	http.Error(w, "Hash header is missing", http.StatusBadRequest)
+		// 	return
+		// }
+		if headerHash != "" {
+			calculatedHash := calculatedHash(body, config.Key) // Hash the original data
+			// Convert headerHash from hex string to bytes for comparison
+			headerHashBytes, err := hex.DecodeString(headerHash)
+			if err != nil {
+				http.Error(w, "Invalid hash format", http.StatusBadRequest)
+				return
+			}
+			if !bytes.Equal(headerHashBytes, calculatedHash) {
+				http.Error(w, "Hash mismatch", http.StatusBadRequest)
+				return
+			}
 		}
 	}
 
