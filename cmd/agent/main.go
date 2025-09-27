@@ -3,6 +3,8 @@ package main
 import (
 	"bytes"
 	"compress/gzip"
+	"crypto/hmac"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -72,9 +74,17 @@ func isRetryableError(err error) bool {
 	return false
 }
 
-func sendMetrics(client *http.Client, metrics []agent.Metric, url string) error {
+func countHash(compressedBody []byte, key string) []byte {
+	keyBytes := []byte(key)
+	h := hmac.New(sha256.New, keyBytes)
+	h.Write(compressedBody)
+	return h.Sum(nil)
+}
+
+func sendMetrics(client *http.Client, metrics []agent.Metric, url string, key string) error {
 	// Prepare the data to send
 	var sendingData []models.MetricsDTO
+	var hash []byte
 	for _, metric := range metrics {
 		reqMetrics := models.MetricsDTO{
 			ID:    metric.Name,
@@ -110,6 +120,9 @@ func sendMetrics(client *http.Client, metrics []agent.Metric, url string) error 
 	if err := gzipWriter.Close(); err != nil {
 		return fmt.Errorf("error closing gzip writer: %w", err)
 	}
+	if key != "" {
+		hash = countHash(compressedData.Bytes(), key)
+	}
 
 	delays := []time.Duration{1 * time.Second, 3 * time.Second, 5 * time.Second}
 	var lastErr error
@@ -131,6 +144,9 @@ func sendMetrics(client *http.Client, metrics []agent.Metric, url string) error 
 		request.Header.Set("Content-Type", "application/json")
 		request.Header.Set("Accept-Encoding", "gzip")
 		request.Header.Set("Content-Encoding", "gzip")
+		if key != "" {
+			request.Header.Set("HashSHA256", string(hash))
+		}
 
 		response, err := client.Do(request)
 		if err != nil {
@@ -176,13 +192,19 @@ func main() {
 	reportInterval := flag.Int("r", 10, "The frequency of sending metrics to the server")
 	pollInterval := flag.Int("p", 2, "The frequency of polling metrics from the package")
 	address := flag.String("a", "localhost:8080", "Address for sending metrics")
+	key := flag.String("k", "", "Key for hash")
 	flag.Parse()
-	envVars := map[string]*int{
+	envIntVars := map[string]*int{
 		"REPORT_INTERVAL": reportInterval,
 		"POLL_INTERVAL":   pollInterval,
 	}
 
-	for envVar, flag := range envVars {
+	envStrVars := map[string]*string{
+		"ADDRESS": address,
+		"KEY":     key,
+	}
+
+	for envVar, flag := range envIntVars {
 		if envValue := os.Getenv(envVar); envValue != "" {
 			interval, err := strconv.Atoi(envValue)
 			if err != nil {
@@ -192,8 +214,10 @@ func main() {
 		}
 	}
 
-	if envAddress := os.Getenv("ADDRESS"); envAddress != "" {
-		*address = envAddress
+	for envVar, flag := range envStrVars {
+		if envValue := os.Getenv(envVar); envValue != "" {
+			*flag = envValue
+		}
 	}
 
 	client := &http.Client{}
@@ -210,12 +234,12 @@ func main() {
 	for {
 		select {
 		case metrics := <-metricsCh:
-			err := sendMetrics(client, metrics, url)
+			err := sendMetrics(client, metrics, url, *key)
 			if err != nil {
 				log.Printf("Error sending metrics: %v", err)
 			}
 		default:
-			// if empry - nothing to do
+			// if empty - nothing to do
 		}
 		time.Sleep(time.Duration(*reportInterval) * time.Second)
 	}

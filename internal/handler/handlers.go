@@ -1,7 +1,10 @@
 package handler
 
 import (
+	"bytes"
 	"compress/gzip"
+	"crypto/hmac"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -44,7 +47,7 @@ func Router(
 		GetHandler(w, r, metricService)
 	})
 	router.Post("/value", func(w http.ResponseWriter, r *http.Request) {
-		GetValue(w, r, metricService, logger)
+		GetValue(w, r, metricService, logger, config)
 	})
 	router.Get("/ping", func(w http.ResponseWriter, r *http.Request) {
 		PingDatabaseHandler(w, r, metricService, logger)
@@ -62,19 +65,50 @@ func BatchUpdateHandler(
 	config *config.ServerConfig,
 	metricService *service.MetricsService,
 ) {
-	var reader io.Reader = r.Body
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, "Failed to read request body", http.StatusBadRequest)
+		return
+	}
+	r.Body.Close()
 
+	// Handle decompression if needed
+	var processData []byte
 	if strings.Contains(r.Header.Get("Content-Encoding"), "gzip") {
-		gzipReader, err := gzip.NewReader(r.Body)
+		gzipReader, err := gzip.NewReader(bytes.NewReader(body))
 		if err != nil {
 			http.Error(w, "Failed to create gzip reader: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 		defer gzipReader.Close()
-		reader = gzipReader
+
+		decompressedData, err := io.ReadAll(gzipReader)
+		if err != nil {
+			http.Error(w, "Failed to decompress data: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+		processData = decompressedData
+	} else {
+		processData = body
 	}
+
+	if config.Key != "" {
+		headerHash := r.Header.Get("HashSHA256")
+		if headerHash == "" {
+			http.Error(w, "Hash header is missing", http.StatusBadRequest)
+			return
+		}
+		calculatedHash := calculatedHash(body, config.Key) // Hash the original data
+		headerHashBytes := []byte(headerHash)
+		if !bytes.Equal(headerHashBytes, calculatedHash) { // Fixed the logic (!)
+			http.Error(w, "Hash mismatch", http.StatusBadRequest)
+			return
+		}
+	}
+	var reader io.Reader = bytes.NewReader(processData)
+
 	var metrics []models.MetricsDTO
-	err := json.NewDecoder(reader).Decode(&metrics)
+	err = json.NewDecoder(reader).Decode(&metrics)
 	if err != nil {
 		http.Error(w, "Invalid JSON format: "+err.Error(), http.StatusBadRequest)
 		return
@@ -130,20 +164,52 @@ func UpdateHandler(
 	config *config.ServerConfig,
 	metricService *service.MetricsService,
 ) {
-	var reader io.Reader = r.Body
+	// Read the request body
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, "Failed to read request body", http.StatusBadRequest)
+		return
+	}
+	r.Body.Close()
 
+	// Handle decompression if needed
+	var processData []byte
 	if strings.Contains(r.Header.Get("Content-Encoding"), "gzip") {
-		gzipReader, err := gzip.NewReader(r.Body)
+		gzipReader, err := gzip.NewReader(bytes.NewReader(body))
 		if err != nil {
-			http.Error(w, "Failed to create gzip reader: "+err.Error(), http.StatusInternalServerError)
+			http.Error(w, "Failed to create gzip reader: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 		defer gzipReader.Close()
-		reader = gzipReader
+
+		decompressedData, err := io.ReadAll(gzipReader)
+		if err != nil {
+			http.Error(w, "Failed to decompress data: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+		processData = decompressedData
+	} else {
+		processData = body
 	}
 
+	// Hash verification
+	if config.Key != "" {
+		headerHash := r.Header.Get("HashSHA256")
+		if headerHash == "" {
+			http.Error(w, "Hash header is missing", http.StatusBadRequest)
+			return
+		}
+		calculatedHash := calculatedHash(body, config.Key) // Hash the original data
+		headerHashBytes := []byte(headerHash)
+		if !bytes.Equal(headerHashBytes, calculatedHash) {
+			http.Error(w, "Hash mismatch", http.StatusBadRequest)
+			return
+		}
+	}
+
+	var reader io.Reader = bytes.NewReader(processData)
 	var metrics models.MetricsDTO
-	err := json.NewDecoder(reader).Decode(&metrics)
+	err = json.NewDecoder(reader).Decode(&metrics)
 	if err != nil {
 		http.Error(w, "Invalid JSON format: "+err.Error(), http.StatusBadRequest)
 		return
@@ -232,10 +298,35 @@ func UpdateHandlerWithParams(
 	}
 }
 
-func GetValue(w http.ResponseWriter, r *http.Request, metricService *service.MetricsService, logger *zap.SugaredLogger) {
+func GetValue(w http.ResponseWriter, r *http.Request, metricService *service.MetricsService, logger *zap.SugaredLogger, config *config.ServerConfig) {
 	var metrics models.MetricsDTO
 	var responseMetric models.MetricsDTO
-	err := json.NewDecoder(r.Body).Decode(&metrics)
+
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, "Failed to read request body", http.StatusBadRequest)
+		return
+	}
+	r.Body.Close()
+
+	// Hash verification for request
+	if config.Key != "" {
+		headerHash := r.Header.Get("HashSHA256")
+		if headerHash == "" {
+			http.Error(w, "Hash header is missing", http.StatusBadRequest)
+			return
+		}
+		calculatedHash := calculatedHash(body, config.Key) // Hash the original data
+		headerHashBytes := []byte(headerHash)
+		if !bytes.Equal(headerHashBytes, calculatedHash) {
+			http.Error(w, "Hash mismatch", http.StatusBadRequest)
+			return
+		}
+	}
+
+	var reader io.Reader = bytes.NewReader(body)
+
+	err = json.NewDecoder(reader).Decode(&metrics)
 	if err != nil {
 		http.Error(w, "Invalid JSON format: "+err.Error(), http.StatusBadRequest)
 		return
@@ -250,9 +341,24 @@ func GetValue(w http.ResponseWriter, r *http.Request, metricService *service.Met
 	if responseMetric.Value != nil {
 		logger.Info("Response metric", zap.Float64("value", *responseMetric.Value))
 	}
+
+	// Set content type
 	w.Header().Set("Content-Type", "application/json")
+
+	// Encode response metric to get the data that will be sent
+	var responseBuffer bytes.Buffer
+	json.NewEncoder(&responseBuffer).Encode(responseMetric)
+	responseData := responseBuffer.Bytes()
+
+	// Generate hash of response data if key is configured
+	if config.Key != "" {
+		responseHash := calculatedHash(responseData, config.Key)
+		w.Header().Set("HashSHA256", string(responseHash))
+	}
+
+	// Write response
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(responseMetric)
+	w.Write(responseData)
 }
 
 func GetHandler(w http.ResponseWriter, r *http.Request, metricService *service.MetricsService) {
@@ -276,4 +382,11 @@ func GetListHandler(w http.ResponseWriter, r *http.Request, metricService *servi
 	w.Header().Set("Content-Type", "text/html")
 	io.WriteString(w, result)
 	w.WriteHeader(http.StatusOK)
+}
+
+func calculatedHash(compressedBody []byte, key string) []byte {
+	keyBytes := []byte(key)
+	h := hmac.New(sha256.New, keyBytes)
+	h.Write(compressedBody)
+	return h.Sum(nil)
 }
