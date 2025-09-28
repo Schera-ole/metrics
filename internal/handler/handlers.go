@@ -2,10 +2,6 @@ package handler
 
 import (
 	"bytes"
-	"compress/gzip"
-	"crypto/hmac"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -66,48 +62,31 @@ func BatchUpdateHandler(
 	config *config.ServerConfig,
 	metricService *service.MetricsService,
 ) {
-	body, err := io.ReadAll(r.Body)
+	// Read raw body
+	body, err := ReadRequestBody(r)
 	if err != nil {
-		http.Error(w, "Failed to read request body", http.StatusBadRequest)
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	r.Body.Close()
 
-	// Handle decompression if needed
+	// Handle decompression
 	var processData []byte
 	if strings.Contains(r.Header.Get("Content-Encoding"), "gzip") {
-		gzipReader, err := gzip.NewReader(bytes.NewReader(body))
+		processData, err = DecompressBody(body)
 		if err != nil {
-			http.Error(w, "Failed to create gzip reader: "+err.Error(), http.StatusBadRequest)
+			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		defer gzipReader.Close()
-
-		decompressedData, err := io.ReadAll(gzipReader)
-		if err != nil {
-			http.Error(w, "Failed to decompress data: "+err.Error(), http.StatusBadRequest)
-			return
-		}
-		processData = decompressedData
 	} else {
 		processData = body
 	}
 
+	// Hash verification for request
 	if config.Key != "" {
 		headerHash := r.Header.Get("HashSHA256")
-		if headerHash == "" {
-			http.Error(w, "Hash header is missing", http.StatusBadRequest)
-			return
-		}
-		calculatedHash := calculatedHash(body, config.Key) // Hash the original data
-		// Convert headerHash from hex string to bytes for comparison
-		headerHashBytes, err := hex.DecodeString(headerHash)
+		err = VerifyRequestHash(body, headerHash, config.Key)
 		if err != nil {
-			http.Error(w, "Invalid hash format", http.StatusBadRequest)
-			return
-		}
-		if !bytes.Equal(headerHashBytes, calculatedHash) {
-			http.Error(w, "Hash mismatch", http.StatusBadRequest)
+			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
 	}
@@ -170,53 +149,32 @@ func UpdateHandler(
 	config *config.ServerConfig,
 	metricService *service.MetricsService,
 ) {
-	// Read the request body
-	body, err := io.ReadAll(r.Body)
+	// Read raw body
+	body, err := ReadRequestBody(r)
 	if err != nil {
-		http.Error(w, "Failed to read request body", http.StatusBadRequest)
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	r.Body.Close()
 
-	// Handle decompression if needed
+	// Handle decompression
 	var processData []byte
 	if strings.Contains(r.Header.Get("Content-Encoding"), "gzip") {
-		gzipReader, err := gzip.NewReader(bytes.NewReader(body))
+		processData, err = DecompressBody(body)
 		if err != nil {
-			http.Error(w, "Failed to create gzip reader: "+err.Error(), http.StatusBadRequest)
+			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		defer gzipReader.Close()
-
-		decompressedData, err := io.ReadAll(gzipReader)
-		if err != nil {
-			http.Error(w, "Failed to decompress data: "+err.Error(), http.StatusBadRequest)
-			return
-		}
-		processData = decompressedData
 	} else {
 		processData = body
 	}
 
-	// Hash verification
+	// Hash verification for request
 	if config.Key != "" {
 		headerHash := r.Header.Get("HashSHA256")
-		// if headerHash == "" {
-		// 	http.Error(w, "Hash header is missing", http.StatusBadRequest)
-		// 	return
-		// }
-		if headerHash != "" {
-			calculatedHash := calculatedHash(body, config.Key) // Hash the original data
-			// Convert headerHash from hex string to bytes for comparison
-			headerHashBytes, err := hex.DecodeString(headerHash)
-			if err != nil {
-				http.Error(w, "Invalid hash format", http.StatusBadRequest)
-				return
-			}
-			if !bytes.Equal(headerHashBytes, calculatedHash) {
-				http.Error(w, "Hash mismatch", http.StatusBadRequest)
-				return
-			}
+		err = VerifyRequestHash(body, headerHash, config.Key)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
 		}
 	}
 
@@ -315,29 +273,21 @@ func GetValue(w http.ResponseWriter, r *http.Request, metricService *service.Met
 	var metrics models.MetricsDTO
 	var responseMetric models.MetricsDTO
 
-	body, err := io.ReadAll(r.Body)
+	// Read raw body
+	body, err := ReadRequestBody(r)
 	if err != nil {
-		http.Error(w, "Failed to read request body", http.StatusBadRequest)
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	r.Body.Close()
 
-	// Handle decompression if needed
+	// Handle decompression
 	var processData []byte
 	if strings.Contains(r.Header.Get("Content-Encoding"), "gzip") {
-		gzipReader, err := gzip.NewReader(bytes.NewReader(body))
+		processData, err = DecompressBody(body)
 		if err != nil {
-			http.Error(w, "Failed to create gzip reader: "+err.Error(), http.StatusBadRequest)
+			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		defer gzipReader.Close()
-
-		decompressedData, err := io.ReadAll(gzipReader)
-		if err != nil {
-			http.Error(w, "Failed to decompress data: "+err.Error(), http.StatusBadRequest)
-			return
-		}
-		processData = decompressedData
 	} else {
 		processData = body
 	}
@@ -345,22 +295,10 @@ func GetValue(w http.ResponseWriter, r *http.Request, metricService *service.Met
 	// Hash verification for request
 	if config.Key != "" {
 		headerHash := r.Header.Get("HashSHA256")
-		// if headerHash == "" {
-		// 	http.Error(w, "Hash header is missing", http.StatusBadRequest)
-		// 	return
-		// }
-		if headerHash != "" {
-			calculatedHash := calculatedHash(body, config.Key) // Hash the original data
-			// Convert headerHash from hex string to bytes for comparison
-			headerHashBytes, err := hex.DecodeString(headerHash)
-			if err != nil {
-				http.Error(w, "Invalid hash format", http.StatusBadRequest)
-				return
-			}
-			if !bytes.Equal(headerHashBytes, calculatedHash) {
-				http.Error(w, "Hash mismatch", http.StatusBadRequest)
-				return
-			}
+		err = VerifyRequestHash(body, headerHash, config.Key)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
 		}
 	}
 
@@ -394,7 +332,7 @@ func GetValue(w http.ResponseWriter, r *http.Request, metricService *service.Met
 
 	// Generate hash of response data if key is configured
 	if config.Key != "" {
-		responseHash := calculatedHash(responseData, config.Key)
+		responseHash := CalculatedHash(responseData, config.Key)
 		w.Header().Set("HashSHA256", fmt.Sprintf("%x", responseHash))
 	}
 
@@ -424,11 +362,4 @@ func GetListHandler(w http.ResponseWriter, r *http.Request, metricService *servi
 	w.Header().Set("Content-Type", "text/html")
 	io.WriteString(w, result)
 	w.WriteHeader(http.StatusOK)
-}
-
-func calculatedHash(compressedBody []byte, key string) []byte {
-	keyBytes := []byte(key)
-	h := hmac.New(sha256.New, keyBytes)
-	h.Write(compressedBody)
-	return h.Sum(nil)
 }
