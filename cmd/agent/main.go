@@ -7,23 +7,25 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"errors"
-	"flag"
 	"fmt"
 	"io"
 	"log"
 	"math/rand"
 	"net/http"
 	"os"
+	"os/signal"
 	"reflect"
 	"runtime"
-	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/Schera-ole/metrics/internal/agent"
 	models "github.com/Schera-ole/metrics/internal/model"
 	"github.com/jackc/pgerrcode"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/shirou/gopsutil/v4/cpu"
+	"github.com/shirou/gopsutil/v4/mem"
 )
 
 type Counter struct {
@@ -193,59 +195,70 @@ func sendMetrics(client *http.Client, metrics []agent.Metric, url string, key st
 	return fmt.Errorf("failed to send metrics after 4 attempts: %w", lastErr)
 }
 
+func collectGopsutilMetrics() []agent.Metric {
+	var metrics []agent.Metric
+	// Get memory metrics
+	memory, err := mem.VirtualMemory()
+	if err != nil {
+		log.Printf("error getting memory stats %v", err)
+		return nil
+	}
+	metrics = append(metrics, agent.Metric{Name: "TotalMemory", Type: models.Gauge, Value: memory.Total})
+	metrics = append(metrics, agent.Metric{Name: "FreeMemory", Type: models.Gauge, Value: memory.Free})
+
+	// Get CPU metrics
+	cpuPercents, err := cpu.Percent(time.Second, true)
+	if err != nil {
+		log.Printf("error getting cpu info %v", err)
+		return nil
+	}
+	for i, percent := range cpuPercents {
+		metrics = append(metrics, agent.Metric{Name: fmt.Sprintf("CPUutilization%d", i), Type: models.Gauge, Value: percent})
+	}
+	return metrics
+}
+
+func worker(client *http.Client, url string, key string, jobs <-chan []agent.Metric) {
+	for job := range jobs {
+		err := sendMetrics(client, job, url, key)
+		if err != nil {
+			log.Printf("Error sending metrics: %v", err)
+		}
+	}
+}
+
 func main() {
-	reportInterval := flag.Int("r", 10, "The frequency of sending metrics to the server")
-	pollInterval := flag.Int("p", 2, "The frequency of polling metrics from the package")
-	address := flag.String("a", "localhost:8080", "Address for sending metrics")
-	key := flag.String("k", "", "Key for hash")
-	flag.Parse()
-	envIntVars := map[string]*int{
-		"REPORT_INTERVAL": reportInterval,
-		"POLL_INTERVAL":   pollInterval,
-	}
-
-	envStrVars := map[string]*string{
-		"ADDRESS": address,
-		"KEY":     key,
-	}
-
-	for envVar, flag := range envIntVars {
-		if envValue := os.Getenv(envVar); envValue != "" {
-			interval, err := strconv.Atoi(envValue)
-			if err != nil {
-				log.Fatalf("Invalid %s value: %s", envVar, envValue)
-			}
-			*flag = interval
-		}
-	}
-
-	for envVar, flag := range envStrVars {
-		if envValue := os.Getenv(envVar); envValue != "" {
-			*flag = envValue
-		}
+	agentConfig, err := agent.NewAgentConfig()
+	if err != nil {
+		log.Fatal("Failed to parse configuration: ", err)
 	}
 
 	client := &http.Client{}
 
-	url := "http://" + *address + "/updates"
+	url := "http://" + agentConfig.Address + "/updates"
 	counter := &Counter{Value: 0}
-	metricsCh := make(chan []agent.Metric, 10)
+	jobs := make(chan []agent.Metric, 20)
+
+	for w := 1; w <= agentConfig.RateLimit; w++ {
+		go worker(client, url, agentConfig.Key, jobs)
+	}
 	go func() {
 		for {
-			metricsCh <- collectMetrics(counter)
-			time.Sleep(time.Duration(*pollInterval) * time.Second)
+			jobs <- collectMetrics(counter)
+			time.Sleep(time.Duration(agentConfig.PollInterval) * time.Second)
 		}
 	}()
-	for {
-		select {
-		case metrics := <-metricsCh:
-			err := sendMetrics(client, metrics, url, *key)
-			if err != nil {
-				log.Printf("Error sending metrics: %v", err)
-			}
-		default:
-			// if empty - nothing to do
+	go func() {
+		for {
+			jobs <- collectGopsutilMetrics()
+			time.Sleep(time.Duration(agentConfig.PollInterval) * time.Second)
 		}
-		time.Sleep(time.Duration(*reportInterval) * time.Second)
-	}
+	}()
+
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+	// Block until signal received
+	<-sigChan
+	log.Println("Shutting down...")
+	close(jobs)
 }
