@@ -24,14 +24,12 @@ func NewAgentConfig() (*AgentConfig, error) {
 		RateLimit:    5,
 	}
 
-	// reportInterval := flag.Int("r", 10, "The frequency of sending metrics to the server")
 	pollInterval := flag.Int("p", 2, "The frequency of polling metrics from the package")
 	address := flag.String("a", "localhost:8080", "Address for sending metrics")
 	key := flag.String("k", "", "Key for hash")
 	rateLimit := flag.Int("l", 5, "Rate limit")
 	flag.Parse()
 	envIntVars := map[string]*int{
-		// "REPORT_INTERVAL": reportInterval,
 		"POLL_INTERVAL": pollInterval,
 		"RATE_LIMIT":    rateLimit,
 	}
@@ -57,7 +55,6 @@ func NewAgentConfig() (*AgentConfig, error) {
 		}
 	}
 	config.Address = *address
-	// config.ReportInterval = *reportInterval
 	config.PollInterval = *pollInterval
 	config.RateLimit = *rateLimit
 	config.Key = *key
