@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"sync"
 
 	"github.com/Schera-ole/metrics/internal/config"
 	internalerrors "github.com/Schera-ole/metrics/internal/errors"
@@ -9,6 +10,7 @@ import (
 )
 
 type MemStorage struct {
+	mu       sync.RWMutex
 	gauges   map[string]float64
 	counters map[string]int64
 	types    map[string]string
@@ -23,6 +25,8 @@ func NewMemStorage() *MemStorage {
 }
 
 func (ms *MemStorage) SetMetric(ctx context.Context, name string, value any, typ string) error {
+	ms.mu.Lock()
+	defer ms.mu.Unlock()
 	switch typ {
 	case config.CounterType:
 		val := value.(int64)
@@ -42,6 +46,8 @@ func (ms *MemStorage) SetMetric(ctx context.Context, name string, value any, typ
 }
 
 func (ms *MemStorage) DeleteMetric(ctx context.Context, name string) error {
+	ms.mu.Lock()
+	defer ms.mu.Unlock()
 	delete(ms.gauges, name)
 	delete(ms.counters, name)
 	delete(ms.types, name)
@@ -49,6 +55,8 @@ func (ms *MemStorage) DeleteMetric(ctx context.Context, name string) error {
 }
 
 func (ms *MemStorage) ListMetrics(ctx context.Context) ([]models.Metric, error) {
+	ms.mu.RLock()
+	defer ms.mu.RUnlock()
 	var result []models.Metric
 
 	for name, typ := range ms.types {
@@ -73,6 +81,8 @@ func (ms *MemStorage) ListMetrics(ctx context.Context) ([]models.Metric, error) 
 }
 
 func (ms *MemStorage) GetMetric(ctx context.Context, metrics models.MetricsDTO) (models.MetricsDTO, error) {
+	ms.mu.RLock()
+	defer ms.mu.RUnlock()
 	metricType, exists := ms.types[metrics.ID]
 	if !exists {
 		return models.MetricsDTO{}, internalerrors.ErrMetricNotFound
@@ -100,6 +110,8 @@ func (ms *MemStorage) GetMetric(ctx context.Context, metrics models.MetricsDTO) 
 }
 
 func (ms *MemStorage) GetMetricByName(ctx context.Context, name string) (any, error) {
+	ms.mu.RLock()
+	defer ms.mu.RUnlock()
 	metricType, exists := ms.types[name]
 	if !exists {
 		return nil, internalerrors.ErrMetricNotFound
@@ -123,6 +135,8 @@ func (ms *MemStorage) Ping(ctx context.Context) error {
 }
 
 func (ms *MemStorage) SetMetrics(ctx context.Context, metrics []models.Metric) error {
+	ms.mu.Lock()
+	defer ms.mu.Unlock()
 	for _, metric := range metrics {
 		switch metric.Type {
 		case config.CounterType:
