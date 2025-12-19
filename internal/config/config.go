@@ -13,6 +13,8 @@ type ServerConfig struct {
 	Restore         bool
 	DatabaseDSN     string
 	Key             string
+	AuditFile       string
+	AuditUrl        string
 }
 
 func NewServerConfig() (*ServerConfig, error) {
@@ -23,6 +25,8 @@ func NewServerConfig() (*ServerConfig, error) {
 		Restore:         false,
 		DatabaseDSN:     "",
 		Key:             "",
+		AuditFile:       "",
+		AuditUrl:        "",
 	}
 
 	address := flag.String("a", config.Address, "address")
@@ -31,6 +35,8 @@ func NewServerConfig() (*ServerConfig, error) {
 	restoreFlag := flag.Bool("r", config.Restore, "bool flag, describe restore metrics from file or not")
 	databaseDSN := flag.String("d", config.DatabaseDSN, "database dsn")
 	key := flag.String("k", "", "Key for hash")
+	auditFile := flag.String("audit-file", config.AuditFile, "file for audit log")
+	auditUrl := flag.String("audit-url", config.AuditUrl, "url for audit log")
 	flag.Parse()
 
 	envVars := map[string]*string{
@@ -61,7 +67,12 @@ func NewServerConfig() (*ServerConfig, error) {
 		}
 		*restoreFlag = restore
 	}
-
+	if *auditFile != "" {
+		config.AuditFile = *auditFile
+	}
+	if *auditUrl != "" {
+		config.AuditUrl = *auditUrl
+	}
 	config.Address = *address
 	config.StoreInterval = *storeInterval
 	config.FileStoragePath = *fileStoragePath

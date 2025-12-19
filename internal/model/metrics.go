@@ -17,3 +17,9 @@ type Metric struct {
 	Type  string
 	Value any
 }
+
+type AuditEvent struct {
+	TS        string   `json:"ts"`
+	Metrics   []string `json:"metrics"`
+	IPAddress string   `json:"ip_address"`
+}

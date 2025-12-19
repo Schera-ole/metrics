@@ -1,0 +1,66 @@
+package audit
+
+import (
+	"bytes"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"os"
+
+	"github.com/Schera-ole/metrics/internal/config"
+	models "github.com/Schera-ole/metrics/internal/model"
+)
+
+type Subscriber struct {
+	ID int
+}
+
+func Broadcaster(source <-chan models.AuditEvent, subs ...chan<- models.AuditEvent) {
+	for evt := range source {
+		for _, subChan := range subs {
+			go func(ch chan<- models.AuditEvent, e models.AuditEvent) {
+				ch <- e
+			}(subChan, evt)
+		}
+	}
+}
+
+func FileSubscriber(events <-chan models.AuditEvent, config config.ServerConfig) {
+	for evt := range events {
+		data, err := json.Marshal(evt)
+		if err != nil {
+			fmt.Printf("FileSubscriber: ошибка маршалинга JSON: %v\n", err)
+			continue
+		}
+		f, err := os.OpenFile(config.AuditFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+		if err != nil {
+			fmt.Printf("FileSubscriber: не удалось открыть файл %s: %v\n", config.AuditFile, err)
+			continue
+		}
+		_, err = f.WriteString(string(data) + "\n")
+		if err != nil {
+			fmt.Printf("FileSubscriber: ошибка записи в файл: %v\n", err)
+		}
+		f.Close()
+		fmt.Printf("FileSubscriber: событие записано в файл: %s\n", string(data))
+	}
+}
+
+func UrlSubscriber(events <-chan models.AuditEvent, config config.ServerConfig) {
+	for evt := range events {
+		data, err := json.Marshal(evt)
+		if err != nil {
+			fmt.Printf("UrlSubscriber: ошибка маршалинга JSON: %v\n", err)
+			continue
+		}
+		resp, err := http.Post(config.AuditUrl, "application/json", bytes.NewBuffer(data))
+		if err != nil {
+			fmt.Printf("UrlSubscriber: ошибка отправки запроса на %s: %v\n", config.AuditUrl, err)
+			continue
+		}
+		io.Copy(io.Discard, resp.Body)
+		resp.Body.Close()
+		fmt.Printf("UrlSubscriber: событие отправлено по URL: %s\n", string(data))
+	}
+}

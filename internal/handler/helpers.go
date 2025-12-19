@@ -9,6 +9,10 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"time"
+
+	models "github.com/Schera-ole/metrics/internal/model"
+	"go.uber.org/zap"
 )
 
 func CalculatedHash(compressedBody []byte, key string) []byte {
@@ -54,4 +58,18 @@ func ReadRequestBody(r *http.Request) ([]byte, error) {
 	}
 	r.Body.Close()
 	return body, nil
+}
+
+func SendAuditEvent(metrics []string, remoteAddr string, eventChan chan models.AuditEvent, logger *zap.SugaredLogger) {
+	event := models.AuditEvent{
+		TS:        time.Now().Format(time.RFC3339),
+		Metrics:   metrics,
+		IPAddress: remoteAddr,
+	}
+	select {
+	case eventChan <- event:
+		// Message was sent
+	default:
+		logger.Info("channel is full")
+	}
 }

@@ -25,6 +25,7 @@ func Router(
 	logger *zap.SugaredLogger,
 	config *config.ServerConfig,
 	metricService *service.MetricsService,
+	eventChan chan models.AuditEvent,
 ) chi.Router {
 	router := chi.NewRouter()
 	router.Use(middlewareinternal.LoggingMiddleware(logger))
@@ -32,13 +33,13 @@ func Router(
 	router.Use(middleware.StripSlashes)
 	router.Use(middleware.Timeout(15 * time.Second))
 	router.Post("/update/{type}/{metric}/{value}", func(w http.ResponseWriter, r *http.Request) {
-		UpdateHandlerWithParams(w, r, logger, config, metricService)
+		UpdateHandlerWithParams(w, r, logger, config, metricService, eventChan)
 	})
 	router.Post("/update", func(w http.ResponseWriter, r *http.Request) {
-		UpdateHandler(w, r, logger, config, metricService)
+		UpdateHandler(w, r, logger, config, metricService, eventChan)
 	})
 	router.Post("/updates", func(w http.ResponseWriter, r *http.Request) {
-		BatchUpdateHandler(w, r, logger, config, metricService)
+		BatchUpdateHandler(w, r, logger, config, metricService, eventChan)
 	})
 	router.Get("/value/{type}/{name}", func(w http.ResponseWriter, r *http.Request) {
 		GetHandler(w, r, metricService)
@@ -61,6 +62,7 @@ func BatchUpdateHandler(
 	logger *zap.SugaredLogger,
 	config *config.ServerConfig,
 	metricService *service.MetricsService,
+	eventChan chan models.AuditEvent,
 ) {
 	// Read raw body
 	body, err := ReadRequestBody(r)
@@ -99,6 +101,7 @@ func BatchUpdateHandler(
 		return
 	}
 	var preparedMetrics []models.Metric
+	var metricsName []string
 	for _, d := range metrics {
 		if d.Value != nil {
 			preparedMetrics = append(preparedMetrics, models.Metric{
@@ -114,6 +117,7 @@ func BatchUpdateHandler(
 				Value: *d.Delta,
 			})
 		}
+		metricsName = append(metricsName, d.ID)
 	}
 	err = metricService.SetMetrics(r.Context(), preparedMetrics)
 	if err != nil {
@@ -129,6 +133,9 @@ func BatchUpdateHandler(
 				logger.Infof("couldn't save to file %s", err)
 			}
 		}
+	}
+	if eventChan != nil {
+		SendAuditEvent(metricsName, r.RemoteAddr, eventChan, logger)
 	}
 
 }
@@ -148,6 +155,7 @@ func UpdateHandler(
 	logger *zap.SugaredLogger,
 	config *config.ServerConfig,
 	metricService *service.MetricsService,
+	eventChan chan models.AuditEvent,
 ) {
 	// Read raw body
 	body, err := ReadRequestBody(r)
@@ -216,6 +224,10 @@ func UpdateHandler(
 			}
 		}
 	}
+	if eventChan != nil {
+		metricsList := []string{metrics.ID}
+		SendAuditEvent(metricsList, r.RemoteAddr, eventChan, logger)
+	}
 }
 
 func UpdateHandlerWithParams(
@@ -224,6 +236,7 @@ func UpdateHandlerWithParams(
 	logger *zap.SugaredLogger,
 	config *config.ServerConfig,
 	metricService *service.MetricsService,
+	eventChan chan models.AuditEvent,
 ) {
 	metricType := chi.URLParam(r, "type")
 	metricName := chi.URLParam(r, "metric")
@@ -266,6 +279,10 @@ func UpdateHandlerWithParams(
 				logger.Infof("couldn't save to file %s", err)
 			}
 		}
+	}
+	if eventChan != nil {
+		metricsList := []string{metricName}
+		SendAuditEvent(metricsList, r.RemoteAddr, eventChan, logger)
 	}
 }
 

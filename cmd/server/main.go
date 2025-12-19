@@ -8,9 +8,11 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/Schera-ole/metrics/internal/audit"
 	"github.com/Schera-ole/metrics/internal/config"
 	"github.com/Schera-ole/metrics/internal/handler"
 	"github.com/Schera-ole/metrics/internal/migration"
+	models "github.com/Schera-ole/metrics/internal/model"
 	"github.com/Schera-ole/metrics/internal/repository"
 	"github.com/Schera-ole/metrics/internal/service"
 	_ "github.com/jackc/pgx/v5/stdlib"
@@ -78,6 +80,22 @@ func main() {
 		metricsService = service.NewMetricsService(storage)
 		defer storage.Close()
 	}
+	// Create event channel
+	var eventChan = make(chan models.AuditEvent, 100)
+	if serverConfig.AuditFile != "" || serverConfig.AuditUrl != "" {
+		var subs []chan<- models.AuditEvent
+		if serverConfig.AuditFile != "" {
+			fileChan := make(chan models.AuditEvent, 50)
+			subs = append(subs, fileChan)
+			go audit.FileSubscriber(fileChan, *serverConfig)
+		}
+		if serverConfig.AuditUrl != "" {
+			urlChan := make(chan models.AuditEvent, 50)
+			subs = append(subs, urlChan)
+			go audit.UrlSubscriber(urlChan, *serverConfig)
+		}
+		go audit.Broadcaster(eventChan, subs...)
+	}
 
 	logSugar.Infow(
 		"Starting server",
@@ -90,7 +108,7 @@ func main() {
 	logSugar.Fatal(
 		http.ListenAndServe(
 			serverConfig.Address,
-			handler.Router(logSugar, serverConfig, metricsService),
+			handler.Router(logSugar, serverConfig, metricsService, eventChan),
 		),
 	)
 }
