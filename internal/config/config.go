@@ -14,7 +14,7 @@ type ServerConfig struct {
 	DatabaseDSN     string
 	Key             string
 	AuditFile       string
-	AuditUrl        string
+	AuditURL        string
 }
 
 func NewServerConfig() (*ServerConfig, error) {
@@ -26,7 +26,7 @@ func NewServerConfig() (*ServerConfig, error) {
 		DatabaseDSN:     "",
 		Key:             "",
 		AuditFile:       "",
-		AuditUrl:        "",
+		AuditURL:        "",
 	}
 
 	address := flag.String("a", config.Address, "address")
@@ -36,7 +36,7 @@ func NewServerConfig() (*ServerConfig, error) {
 	databaseDSN := flag.String("d", config.DatabaseDSN, "database dsn")
 	key := flag.String("k", "", "Key for hash")
 	auditFile := flag.String("audit-file", config.AuditFile, "file for audit log")
-	auditUrl := flag.String("audit-url", config.AuditUrl, "url for audit log")
+	auditURL := flag.String("audit-url", config.AuditURL, "url for audit log")
 	flag.Parse()
 
 	envVars := map[string]*string{
@@ -70,8 +70,8 @@ func NewServerConfig() (*ServerConfig, error) {
 	if *auditFile != "" {
 		config.AuditFile = *auditFile
 	}
-	if *auditUrl != "" {
-		config.AuditUrl = *auditUrl
+	if *auditURL != "" {
+		config.AuditURL = *auditURL
 	}
 	config.Address = *address
 	config.StoreInterval = *storeInterval

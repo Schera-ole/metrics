@@ -47,20 +47,20 @@ func FileSubscriber(events <-chan models.AuditEvent, config config.ServerConfig)
 	}
 }
 
-func UrlSubscriber(events <-chan models.AuditEvent, config config.ServerConfig) {
+func URLSubscriber(events <-chan models.AuditEvent, config config.ServerConfig) {
 	for evt := range events {
 		data, err := json.Marshal(evt)
 		if err != nil {
-			fmt.Printf("UrlSubscriber: ошибка маршалинга JSON: %v\n", err)
+			fmt.Printf("URLSubscriber: ошибка маршалинга JSON: %v\n", err)
 			continue
 		}
-		resp, err := http.Post(config.AuditUrl, "application/json", bytes.NewBuffer(data))
+		resp, err := http.Post(config.AuditURL, "application/json", bytes.NewBuffer(data))
 		if err != nil {
-			fmt.Printf("UrlSubscriber: ошибка отправки запроса на %s: %v\n", config.AuditUrl, err)
+			fmt.Printf("URLSubscriber: ошибка отправки запроса на %s: %v\n", config.AuditURL, err)
 			continue
 		}
 		io.Copy(io.Discard, resp.Body)
 		resp.Body.Close()
-		fmt.Printf("UrlSubscriber: событие отправлено по URL: %s\n", string(data))
+		fmt.Printf("URLSubscriber: событие отправлено по URL: %s\n", string(data))
 	}
 }

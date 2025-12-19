@@ -82,17 +82,17 @@ func main() {
 	}
 	// Create event channel
 	var eventChan = make(chan models.AuditEvent, 100)
-	if serverConfig.AuditFile != "" || serverConfig.AuditUrl != "" {
+	if serverConfig.AuditFile != "" || serverConfig.AuditURL != "" {
 		var subs []chan<- models.AuditEvent
 		if serverConfig.AuditFile != "" {
 			fileChan := make(chan models.AuditEvent, 50)
 			subs = append(subs, fileChan)
 			go audit.FileSubscriber(fileChan, *serverConfig)
 		}
-		if serverConfig.AuditUrl != "" {
+		if serverConfig.AuditURL != "" {
 			urlChan := make(chan models.AuditEvent, 50)
 			subs = append(subs, urlChan)
-			go audit.UrlSubscriber(urlChan, *serverConfig)
+			go audit.URLSubscriber(urlChan, *serverConfig)
 		}
 		go audit.Broadcaster(eventChan, subs...)
 	}
