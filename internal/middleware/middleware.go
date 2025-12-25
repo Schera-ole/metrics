@@ -4,6 +4,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"compress/gzip"
@@ -66,6 +67,13 @@ func LoggingMiddleware(logger *zap.SugaredLogger) func(http.Handler) http.Handle
 	}
 }
 
+var gzipWriterPool = sync.Pool{
+	New: func() interface{} {
+		w, _ := gzip.NewWriterLevel(io.Discard, gzip.BestSpeed)
+		return w
+	},
+}
+
 type gzipWriter struct {
 	http.ResponseWriter
 	Writer io.Writer
@@ -83,12 +91,13 @@ func GzipMiddleware(next http.Handler) http.Handler {
 		}
 
 		w.Header().Set("Content-Encoding", "gzip")
-		gz, err := gzip.NewWriterLevel(w, gzip.BestSpeed)
-		if err != nil {
-			io.WriteString(w, err.Error())
-			return
-		}
-		defer gz.Close()
-		next.ServeHTTP(gzipWriter{ResponseWriter: w, Writer: gz}, r)
+		gzw := gzipWriterPool.Get().(*gzip.Writer)
+		gzw.Reset(w)
+		defer func() {
+			gzw.Close()
+			gzipWriterPool.Put(gzw)
+		}()
+		gw := &gzipWriter{ResponseWriter: w, Writer: gzw}
+		next.ServeHTTP(gw, r)
 	})
 }

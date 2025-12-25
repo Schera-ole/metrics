@@ -25,7 +25,7 @@ func NewAgentConfig() (*AgentConfig, error) {
 	}
 
 	pollInterval := flag.Int("p", 2, "The frequency of polling metrics from the package")
-	address := flag.String("a", "localhost:8080", "Address for sending metrics")
+	address := flag.String("a", "82.202.141.180:8080", "Address for sending metrics")
 	key := flag.String("k", "", "Key for hash")
 	rateLimit := flag.Int("l", 5, "Rate limit")
 	flag.Parse()
