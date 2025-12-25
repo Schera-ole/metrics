@@ -20,12 +20,13 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/Schera-ole/metrics/internal/agent"
-	models "github.com/Schera-ole/metrics/internal/model"
 	"github.com/jackc/pgerrcode"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/shirou/gopsutil/v4/cpu"
 	"github.com/shirou/gopsutil/v4/mem"
+
+	"github.com/Schera-ole/metrics/internal/agent"
+	models "github.com/Schera-ole/metrics/internal/model"
 )
 
 type Counter struct {

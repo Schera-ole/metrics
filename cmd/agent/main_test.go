@@ -9,9 +9,10 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	models "github.com/Schera-ole/metrics/internal/model"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	models "github.com/Schera-ole/metrics/internal/model"
 )
 
 func TestCollectMetrics(t *testing.T) {

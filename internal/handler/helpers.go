@@ -12,8 +12,9 @@ import (
 	"sync"
 	"time"
 
-	models "github.com/Schera-ole/metrics/internal/model"
 	"go.uber.org/zap"
+
+	models "github.com/Schera-ole/metrics/internal/model"
 )
 
 func CalculatedHash(compressedBody []byte, key string) []byte {

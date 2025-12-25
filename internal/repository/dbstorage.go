@@ -5,10 +5,11 @@ import (
 	"database/sql"
 	"fmt"
 
+	_ "github.com/jackc/pgx/v5/stdlib"
+
 	"github.com/Schera-ole/metrics/internal/config"
 	internalerrors "github.com/Schera-ole/metrics/internal/errors"
 	models "github.com/Schera-ole/metrics/internal/model"
-	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
 type DBStorage struct {
