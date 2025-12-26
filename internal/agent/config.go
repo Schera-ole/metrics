@@ -1,3 +1,4 @@
+// Package agent provides configuration management for the metrics collection agent.
 package agent
 
 import (
@@ -7,15 +8,28 @@ import (
 	"strconv"
 )
 
+// AgentConfig holds the configuration settings for the metrics collection agent.
 type AgentConfig struct {
+	// ReportInterval is the interval in seconds between reports to the server.
 	ReportInterval int
-	PollInterval   int
-	Address        string
-	Key            string
-	RateLimit      int
+
+	// PollInterval is the interval in seconds between metric collections.
+	PollInterval int
+
+	// Address is the host:port combination of the metrics server to send data to.
+	Address string
+
+	// Key is the secret key used for HMAC SHA256 hashing of requests.
+	Key string
+
+	// RateLimit is the maximum number of concurrent requests to the server.
+	RateLimit int
 }
 
+// NewAgentConfig creates a new AgentConfig with default values and parses
+// command-line flags and environment variables.
 func NewAgentConfig() (*AgentConfig, error) {
+
 	config := &AgentConfig{
 		// ReportInterval: 10,
 		PollInterval: 2,
@@ -25,7 +39,7 @@ func NewAgentConfig() (*AgentConfig, error) {
 	}
 
 	pollInterval := flag.Int("p", 2, "The frequency of polling metrics from the package")
-	address := flag.String("a", "82.202.141.180:8080", "Address for sending metrics")
+	address := flag.String("a", "localhost:8080", "Address for sending metrics")
 	key := flag.String("k", "", "Key for hash")
 	rateLimit := flag.Int("l", 5, "Rate limit")
 	flag.Parse()

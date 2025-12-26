@@ -1,3 +1,7 @@
+// Package audit provides audit logging functionality for the metrics server.
+//
+// It implements a publish-subscribe pattern for distributing audit events to
+// multiple destinations including files and HTTP endpoints.
 package audit
 
 import (
@@ -16,6 +20,10 @@ type Subscriber struct {
 	ID int
 }
 
+// Broadcaster distributes audit events to multiple subscriber channels.
+//
+// It receives events from a source channel and sends them to all provided subscriber channels
+// using goroutines to ensure non-blocking delivery.
 func Broadcaster(source <-chan models.AuditEvent, subs ...chan<- models.AuditEvent) {
 	for evt := range source {
 		for _, subChan := range subs {
@@ -26,6 +34,7 @@ func Broadcaster(source <-chan models.AuditEvent, subs ...chan<- models.AuditEve
 	}
 }
 
+// FileSubscriber writes audit events to a file.
 func FileSubscriber(events <-chan models.AuditEvent, config config.ServerConfig) {
 	for evt := range events {
 		data, err := json.Marshal(evt)
@@ -47,6 +56,7 @@ func FileSubscriber(events <-chan models.AuditEvent, config config.ServerConfig)
 	}
 }
 
+// URLSubscriber sends audit events to an HTTP endpoint.
 func URLSubscriber(events <-chan models.AuditEvent, config config.ServerConfig) {
 	for evt := range events {
 		data, err := json.Marshal(evt)

@@ -4,10 +4,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"go.uber.org/zap"
@@ -21,56 +21,11 @@ import (
 	"github.com/Schera-ole/metrics/internal/service"
 )
 
-type MockedStorage struct {
-	SetMetricCalled bool
-	Err             error
-}
-
-func (m *MockedStorage) SetMetric(ctx context.Context, name string, val interface{}, typ string) error {
-	m.SetMetricCalled = true
-	return m.Err
-}
-
-func (m *MockedStorage) SetMetrics(ctx context.Context, metrics []models.Metric) error {
-	// Просто заглушка
-	return nil
-}
-
-func (m *MockedStorage) GetMetric(ctx context.Context, metrics models.MetricsDTO) (models.MetricsDTO, error) {
-	// Просто заглушка
-	return models.MetricsDTO{}, nil
-}
-
-func (m *MockedStorage) GetMetricByName(ctx context.Context, name string) (interface{}, error) {
-	// Просто заглушка
-	return nil, nil
-}
-
-func (m *MockedStorage) DeleteMetric(ctx context.Context, name string) error {
-	// Просто заглушка
-	return nil
-}
-
-func (m *MockedStorage) ListMetrics(ctx context.Context) ([]models.Metric, error) {
-	// Просто заглушка
-	return nil, nil
-}
-
-func (m *MockedStorage) Ping(ctx context.Context) error {
-	// Просто заглушка
-	return nil
-}
-
-func (m *MockedStorage) Close() error {
-	// Просто заглушка
-	return nil
-}
-
-func TestUpdateHandler(t *testing.T) {
-	url := "http://localhost:8080"
+// testSetup creates common test dependencies
+func testSetup(t *testing.T) (*service.MetricsService, *config.ServerConfig, *zap.SugaredLogger) {
 	storage := repository.NewMemStorage()
 	logger, _ := zap.NewDevelopment()
-	defer logger.Sync()
+	t.Cleanup(func() { logger.Sync() })
 	logSugar := logger.Sugar()
 	metricService := service.NewMetricsService(storage)
 
@@ -82,6 +37,71 @@ func TestUpdateHandler(t *testing.T) {
 		Restore:         false,
 	}
 
+	return metricService, testConfig, logSugar
+}
+
+// testRequest performs an HTTP request to the test server
+func testRequest(t *testing.T, ts *httptest.Server, method, path string, body io.Reader) *http.Response {
+	req, err := http.NewRequest(method, ts.URL+path, body)
+	require.NoError(t, err)
+
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+
+	resp, err := ts.Client().Do(req)
+	require.NoError(t, err)
+
+	return resp
+}
+
+type MockedStorage struct {
+	SetMetricCalled bool
+	Err             error
+}
+
+func (m *MockedStorage) SetMetric(ctx context.Context, name string, val interface{}, typ string) error {
+	m.SetMetricCalled = true
+	return m.Err
+}
+
+func (m *MockedStorage) SetMetrics(ctx context.Context, metrics []models.Metric) error {
+	// Stub implementation
+	return nil
+}
+
+func (m *MockedStorage) GetMetric(ctx context.Context, metrics models.MetricsDTO) (models.MetricsDTO, error) {
+	// Stub implementation
+	return models.MetricsDTO{}, nil
+}
+
+func (m *MockedStorage) GetMetricByName(ctx context.Context, name string) (interface{}, error) {
+	// Stub implementation
+	return nil, nil
+}
+
+func (m *MockedStorage) DeleteMetric(ctx context.Context, name string) error {
+	// Stub implementation
+	return nil
+}
+
+func (m *MockedStorage) ListMetrics(ctx context.Context) ([]models.Metric, error) {
+	// Stub implementation
+	return nil, nil
+}
+
+func (m *MockedStorage) Ping(ctx context.Context) error {
+	// Stub implementation
+	return nil
+}
+
+func (m *MockedStorage) Close() error {
+	// Stub implementation
+	return nil
+}
+
+func TestUpdateHandler(t *testing.T) {
+	metricService, testConfig, logSugar := testSetup(t)
 	ts := httptest.NewServer(Router(logSugar, testConfig, metricService, nil))
 	defer ts.Close()
 
@@ -135,9 +155,8 @@ func TestUpdateHandler(t *testing.T) {
 			statusCode: http.StatusBadRequest,
 		},
 	}
-	for _, tt := range tests {
-		fmt.Print(url + tt.endpoint)
 
+	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			var body io.Reader
 			if tt.body != "" {
@@ -150,32 +169,14 @@ func TestUpdateHandler(t *testing.T) {
 	}
 }
 
-func testRequest(t *testing.T, ts *httptest.Server, method,
-	path string, body io.Reader) *http.Response {
-	req, err := http.NewRequest(method, ts.URL+path, body)
-	require.NoError(t, err)
-
-	if body != nil {
-		req.Header.Set("Content-Type", "application/json")
-	}
-
-	resp, err := ts.Client().Do(req)
-	require.NoError(t, err)
-
-	return resp
-}
 func TestGetHandler(t *testing.T) {
-	storage := repository.NewMemStorage()
-	logger, _ := zap.NewDevelopment()
-	defer logger.Sync()
-	metricService := service.NewMetricsService(storage)
+	metricService, testConfig, logSugar := testSetup(t)
 
 	// Set a gauge metric
 	err := metricService.SetMetric(context.Background(), "TestGauge", 42.5, models.Gauge)
 	require.NoError(t, err)
 
-	testConfig := &config.ServerConfig{Address: "localhost:8080"}
-	ts := httptest.NewServer(Router(logger.Sugar(), testConfig, metricService, nil))
+	ts := httptest.NewServer(Router(logSugar, testConfig, metricService, nil))
 	defer ts.Close()
 
 	r := testRequest(t, ts, http.MethodGet, "/value/gauge/TestGauge", nil)
@@ -186,17 +187,13 @@ func TestGetHandler(t *testing.T) {
 }
 
 func TestGetValueHandler(t *testing.T) {
-	storage := repository.NewMemStorage()
-	logger, _ := zap.NewDevelopment()
-	defer logger.Sync()
-	metricService := service.NewMetricsService(storage)
+	metricService, testConfig, logSugar := testSetup(t)
 
 	// Set a counter metric
 	err := metricService.SetMetric(context.Background(), "TestCounter", int64(10), models.Counter)
 	require.NoError(t, err)
 
-	testConfig := &config.ServerConfig{Address: "localhost:8080"}
-	ts := httptest.NewServer(Router(logger.Sugar(), testConfig, metricService, nil))
+	ts := httptest.NewServer(Router(logSugar, testConfig, metricService, nil))
 	defer ts.Close()
 
 	requestBody := `{"id":"TestCounter","type":"counter"}`
@@ -216,16 +213,12 @@ func TestGetValueHandler(t *testing.T) {
 }
 
 func TestGetListHandler(t *testing.T) {
-	storage := repository.NewMemStorage()
-	logger, _ := zap.NewDevelopment()
-	defer logger.Sync()
-	metricService := service.NewMetricsService(storage)
+	metricService, testConfig, logSugar := testSetup(t)
 
 	_ = metricService.SetMetric(context.Background(), "M1", 1.0, models.Gauge)
 	_ = metricService.SetMetric(context.Background(), "M2", int64(2), models.Counter)
 
-	testConfig := &config.ServerConfig{Address: "localhost:8080"}
-	ts := httptest.NewServer(Router(logger.Sugar(), testConfig, metricService, nil))
+	ts := httptest.NewServer(Router(logSugar, testConfig, metricService, nil))
 	defer ts.Close()
 
 	r := testRequest(t, ts, http.MethodGet, "/", nil)
@@ -238,12 +231,8 @@ func TestGetListHandler(t *testing.T) {
 }
 
 func TestPingHandler(t *testing.T) {
-	storage := repository.NewMemStorage()
-	logger, _ := zap.NewDevelopment()
-	defer logger.Sync()
-	metricService := service.NewMetricsService(storage)
-	testConfig := &config.ServerConfig{Address: "localhost:8080"}
-	ts := httptest.NewServer(Router(logger.Sugar(), testConfig, metricService, nil))
+	metricService, testConfig, logSugar := testSetup(t)
+	ts := httptest.NewServer(Router(logSugar, testConfig, metricService, nil))
 	defer ts.Close()
 
 	r := testRequest(t, ts, http.MethodGet, "/ping", nil)
@@ -252,12 +241,8 @@ func TestPingHandler(t *testing.T) {
 }
 
 func TestBatchUpdateHandler(t *testing.T) {
-	storage := repository.NewMemStorage()
-	logger, _ := zap.NewDevelopment()
-	defer logger.Sync()
-	metricService := service.NewMetricsService(storage)
-	testConfig := &config.ServerConfig{Address: "localhost:8080"}
-	ts := httptest.NewServer(Router(logger.Sugar(), testConfig, metricService, nil))
+	metricService, testConfig, logSugar := testSetup(t)
+	ts := httptest.NewServer(Router(logSugar, testConfig, metricService, nil))
 	defer ts.Close()
 
 	// Prepare batch payload
@@ -284,42 +269,71 @@ func TestBatchUpdateHandler(t *testing.T) {
 }
 
 func TestUpdateHandlerWithParams(t *testing.T) {
-	storage := repository.NewMemStorage()
-	logger, _ := zap.NewDevelopment()
-	defer logger.Sync()
-	metricService := service.NewMetricsService(storage)
-	testConfig := &config.ServerConfig{Address: "localhost:8080"}
-	ts := httptest.NewServer(Router(logger.Sugar(), testConfig, metricService, nil))
+	metricService, testConfig, logSugar := testSetup(t)
+	ts := httptest.NewServer(Router(logSugar, testConfig, metricService, nil))
 	defer ts.Close()
 
-	// gauge via URL params
-	r := testRequest(t, ts, http.MethodPost, "/update/gauge/ParamGauge/7.5", nil)
-	defer r.Body.Close()
-	assert.Equal(t, http.StatusOK, r.StatusCode)
-	val, err := metricService.GetMetricByName(context.Background(), "ParamGauge")
-	require.NoError(t, err)
-	assert.Equal(t, 7.5, val)
+	tests := []struct {
+		name          string
+		endpoint      string
+		method        string
+		statusCode    int
+		expectedValue interface{}
+	}{
+		{
+			name:          "gauge via URL params",
+			endpoint:      "/update/gauge/ParamGauge/7.5",
+			method:        http.MethodPost,
+			statusCode:    http.StatusOK,
+			expectedValue: 7.5,
+		},
+		{
+			name:          "counter via URL params",
+			endpoint:      "/update/counter/ParamCounter/10",
+			method:        http.MethodPost,
+			statusCode:    http.StatusOK,
+			expectedValue: int64(10),
+		},
+		{
+			name:          "invalid gauge value",
+			endpoint:      "/update/gauge/BadGauge/not_a_number",
+			method:        http.MethodPost,
+			statusCode:    http.StatusBadRequest,
+			expectedValue: nil,
+		},
+		{
+			name:          "invalid counter value",
+			endpoint:      "/update/counter/BadCounter/not_a_number",
+			method:        http.MethodPost,
+			statusCode:    http.StatusBadRequest,
+			expectedValue: nil,
+		},
+		{
+			name:          "invalid metric type",
+			endpoint:      "/update/invalid/InvalidType/123",
+			method:        http.MethodPost,
+			statusCode:    http.StatusBadRequest,
+			expectedValue: nil,
+		},
+	}
 
-	// counter via URL params
-	r2 := testRequest(t, ts, http.MethodPost, "/update/counter/ParamCounter/10", nil)
-	defer r2.Body.Close()
-	assert.Equal(t, http.StatusOK, r2.StatusCode)
-	val2, err := metricService.GetMetricByName(context.Background(), "ParamCounter")
-	require.NoError(t, err)
-	assert.Equal(t, int64(10), val2)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			r := testRequest(t, ts, tt.method, tt.endpoint, nil)
+			defer r.Body.Close()
+			assert.Equal(t, tt.statusCode, r.StatusCode)
 
-	// invalid gauge value
-	r3 := testRequest(t, ts, http.MethodPost, "/update/gauge/BadGauge/not_a_number", nil)
-	defer r3.Body.Close()
-	assert.Equal(t, http.StatusBadRequest, r3.StatusCode)
-
-	// invalid counter value
-	r4 := testRequest(t, ts, http.MethodPost, "/update/counter/BadCounter/not_a_number", nil)
-	defer r4.Body.Close()
-	assert.Equal(t, http.StatusBadRequest, r4.StatusCode)
-
-	// invalid metric type
-	r5 := testRequest(t, ts, http.MethodPost, "/update/invalid/InvalidType/123", nil)
-	defer r5.Body.Close()
-	assert.Equal(t, http.StatusBadRequest, r5.StatusCode)
+			// If the request was successful, verify the stored value
+			if tt.statusCode == http.StatusOK {
+				// Extract metric name from endpoint: /update/type/name/value
+				parts := strings.Split(tt.endpoint, "/")
+				if len(parts) >= 5 {
+					metricName := parts[4]
+					val, err := metricService.GetMetricByName(context.Background(), metricName)
+					require.NoError(t, err)
+					assert.Equal(t, tt.expectedValue, val)
+				}
+			}
+		})
+	}
 }

@@ -1,3 +1,8 @@
+// Package main implements the metrics collection agent.
+//
+// It collects system and runtime metrics at regular intervals and sends them
+// to the metrics server. The agent supports configurable polling intervals,
+// rate limiting, and secure communication with the server.
 package main
 
 import (
@@ -29,11 +34,17 @@ import (
 	models "github.com/Schera-ole/metrics/internal/model"
 )
 
+// Counter tracks the number of times metrics have been collected.
 type Counter struct {
+	// Value is the current count of metric collection cycles
 	Value int64
 }
 
+// collectMetrics gathers runtime metrics from the Go runtime.
+//
+// It collects memory statistics, garbage collector information, and a random value.
 func collectMetrics(counter *Counter) []agent.Metric {
+
 	var metrics []agent.Metric
 	var MemStats runtime.MemStats
 	runtime.GC()
@@ -52,7 +63,11 @@ func collectMetrics(counter *Counter) []agent.Metric {
 	return metrics
 }
 
+// isRetryableError determines if an error should trigger a retry.
+//
+// It checks for network-related errors and certain PostgreSQL errors.
 func isRetryableError(err error) bool {
+
 	// Check if the error is a PostgreSQL error
 	var pgErr *pgconn.PgError
 	if errors.As(err, &pgErr) {
@@ -77,22 +92,26 @@ func isRetryableError(err error) bool {
 	return false
 }
 
+// countHash calculates the HMAC SHA256 hash of the compressed body.
 func countHash(compressedBody []byte, key string) []byte {
+
 	keyBytes := []byte(key)
 	h := hmac.New(sha256.New, keyBytes)
 	h.Write(compressedBody)
 	return h.Sum(nil)
 }
 
+// countHashString calculates the HMAC SHA256 hash of the compressed body and returns it as a hex string.
 func countHashString(compressedBody []byte, key string) string {
+
 	hash := countHash(compressedBody, key)
 	return fmt.Sprintf("%x", hash)
 }
 
-func sendMetrics(client *http.Client, metrics []agent.Metric, url string, key string) error {
+// prepareMetricsPayload prepares the metrics data for sending.
+func prepareMetricsPayload(metrics []agent.Metric, key string) ([]byte, string, error) {
 	// Prepare the data to send
 	var sendingData []models.MetricsDTO
-	var hash string
 	for _, metric := range metrics {
 		reqMetrics := models.MetricsDTO{
 			ID:    metric.Name,
@@ -118,20 +137,26 @@ func sendMetrics(client *http.Client, metrics []agent.Metric, url string, key st
 	}
 	jsonData, err := json.Marshal(sendingData)
 	if err != nil {
-		return fmt.Errorf("error creating json")
+		return nil, "", fmt.Errorf("error creating json")
 	}
 	var compressedData bytes.Buffer
 	gzipWriter := gzip.NewWriter(&compressedData)
 	if _, err := gzipWriter.Write(jsonData); err != nil {
-		return fmt.Errorf("error compressing data: %w", err)
+		return nil, "", fmt.Errorf("error compressing data: %w", err)
 	}
 	if err := gzipWriter.Close(); err != nil {
-		return fmt.Errorf("error closing gzip writer: %w", err)
+		return nil, "", fmt.Errorf("error closing gzip writer: %w", err)
 	}
+	compressedBytes := compressedData.Bytes()
+	var hash string
 	if key != "" {
-		hash = countHashString(compressedData.Bytes(), key)
+		hash = countHashString(compressedBytes, key)
 	}
+	return compressedBytes, hash, nil
+}
 
+// sendWithRetry sends a batch of metrics to the server with retry logic.
+func sendWithRetry(client *http.Client, payload []byte, hash string, url string, key string) error {
 	delays := []time.Duration{1 * time.Second, 3 * time.Second, 5 * time.Second}
 	var lastErr error
 
@@ -144,7 +169,9 @@ func sendMetrics(client *http.Client, metrics []agent.Metric, url string, key st
 			}
 		}
 
-		request, err := http.NewRequest(http.MethodPost, url, &compressedData)
+		// Create a new reader for each attempt since it gets consumed
+		payloadReader := bytes.NewReader(payload)
+		request, err := http.NewRequest(http.MethodPost, url, payloadReader)
 		if err != nil {
 			lastErr = fmt.Errorf("error creating request for %s: %w", url, err)
 			continue
@@ -196,7 +223,9 @@ func sendMetrics(client *http.Client, metrics []agent.Metric, url string, key st
 	return fmt.Errorf("failed to send metrics after 4 attempts: %w", lastErr)
 }
 
+// collectGopsutilMetrics gathers system metrics using gopsutil.
 func collectGopsutilMetrics() []agent.Metric {
+
 	var metrics []agent.Metric
 	// Get memory metrics
 	memory, err := mem.VirtualMemory()
@@ -219,16 +248,28 @@ func collectGopsutilMetrics() []agent.Metric {
 	return metrics
 }
 
+// worker processes metric batches from the jobs channel.
 func worker(client *http.Client, url string, key string, jobs <-chan []agent.Metric) {
+
 	for job := range jobs {
-		err := sendMetrics(client, job, url, key)
+		// Prepare the metrics payload
+		payload, hash, err := prepareMetricsPayload(job, key)
+		if err != nil {
+			log.Printf("Error preparing metrics payload: %v", err)
+			continue
+		}
+
+		// Send with retry logic
+		err = sendWithRetry(client, payload, hash, url, key)
 		if err != nil {
 			log.Printf("Error sending metrics: %v", err)
 		}
 	}
 }
 
+// main initializes and starts the metrics collection agent.
 func main() {
+
 	agentConfig, err := agent.NewAgentConfig()
 	if err != nil {
 		log.Fatal("Failed to parse configuration: ", err)

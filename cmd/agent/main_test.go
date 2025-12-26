@@ -68,7 +68,9 @@ func TestSendMetric(t *testing.T) {
 
 	client := &http.Client{}
 
-	err := sendMetrics(client, metrics, server.URL+"/update", key)
+	payload, hash, err := prepareMetricsPayload(metrics, key)
+	require.NoError(t, err)
+	err = sendWithRetry(client, payload, hash, server.URL+"/update", key)
 	require.NoError(t, err)
 
 	// We should receive exactly one request with all metrics
@@ -124,7 +126,9 @@ func TestSendMetricWithHash(t *testing.T) {
 
 	client := &http.Client{}
 
-	err := sendMetrics(client, metrics, server.URL+"/update", key)
+	payload, hash, err := prepareMetricsPayload(metrics, key)
+	require.NoError(t, err)
+	err = sendWithRetry(client, payload, hash, server.URL+"/update", key)
 	require.NoError(t, err)
 
 	// We should receive exactly one request with all metrics

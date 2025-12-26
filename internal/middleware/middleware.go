@@ -1,3 +1,7 @@
+// Package middlewareinternal provides HTTP middleware for the metrics server.
+//
+// It includes middleware for logging HTTP requests and responses, and for
+// compressing response bodies using gzip compression.
 package middlewareinternal
 
 import (
@@ -35,7 +39,9 @@ func (r *loggingResponseWriter) WriteHeader(statusCode int) {
 	r.responseData.status = statusCode
 }
 
+// LoggingMiddleware creates a middleware that logs HTTP requests and responses.
 func LoggingMiddleware(logger *zap.SugaredLogger) func(http.Handler) http.Handler {
+
 	return func(next http.Handler) http.Handler {
 		logFn := func(w http.ResponseWriter, r *http.Request) {
 			start := time.Now()
@@ -83,7 +89,9 @@ func (w gzipWriter) Write(b []byte) (int, error) {
 	return w.Writer.Write(b)
 }
 
+// GzipMiddleware creates a middleware that compresses response bodies using gzip.
 func GzipMiddleware(next http.Handler) http.Handler {
+
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !strings.Contains(r.Header.Get("Accept-Encoding"), "gzip") {
 			next.ServeHTTP(w, r)

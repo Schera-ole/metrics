@@ -1,3 +1,4 @@
+// Package main implements the metrics server application.
 package main
 
 import (
@@ -21,7 +22,9 @@ import (
 	"github.com/Schera-ole/metrics/internal/service"
 )
 
+// main initializes and starts the metrics server.
 func main() {
+
 	serverConfig, err := config.NewServerConfig()
 	if err != nil {
 		log.Fatal("Failed to parse configuration: ", err)

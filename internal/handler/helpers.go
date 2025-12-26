@@ -17,14 +17,18 @@ import (
 	models "github.com/Schera-ole/metrics/internal/model"
 )
 
+// CalculatedHash calculates the HMAC SHA256 hash of the compressed body using the provided key.
 func CalculatedHash(compressedBody []byte, key string) []byte {
+
 	keyBytes := []byte(key)
 	h := hmac.New(sha256.New, keyBytes)
 	h.Write(compressedBody)
 	return h.Sum(nil)
 }
 
+// VerifyRequestHash verifies the HMAC SHA256 hash of a request body against a header value.
 func VerifyRequestHash(body []byte, headerHash string, key string) error {
+
 	if key == "" || headerHash == "" {
 		return nil
 	}
@@ -51,7 +55,9 @@ var gzipReaderPool = sync.Pool{
 	},
 }
 
+// DecompressBody decompresses a gzip-compressed byte slice.
 func DecompressBody(body []byte) ([]byte, error) {
+
 	reader := gzipReaderPool.Get()
 	if reader == nil {
 		// If we couldn't get a reader from the pool, create a new one
@@ -114,7 +120,9 @@ func DecompressBody(body []byte) ([]byte, error) {
 	return decompressedData, nil
 }
 
+// ReadRequestBody reads the entire body of an HTTP request.
 func ReadRequestBody(r *http.Request) ([]byte, error) {
+
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read request body: %w", err)
@@ -123,7 +131,9 @@ func ReadRequestBody(r *http.Request) ([]byte, error) {
 	return body, nil
 }
 
+// SendAuditEvent sends an audit event to the event channel.
 func SendAuditEvent(metrics []string, remoteAddr string, eventChan chan models.AuditEvent, logger *zap.SugaredLogger) {
+
 	event := models.AuditEvent{
 		TS:        time.Now().Format(time.RFC3339),
 		Metrics:   metrics,
