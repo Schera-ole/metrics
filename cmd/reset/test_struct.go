@@ -1,4 +1,4 @@
-package main
+package reset
 
 // TestStruct - test structure for checking Reset method generation
 // generate:reset
