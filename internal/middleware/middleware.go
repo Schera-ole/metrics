@@ -1,9 +1,14 @@
+// Package middlewareinternal provides HTTP middleware for the metrics server.
+//
+// It includes middleware for logging HTTP requests and responses, and for
+// compressing response bodies using gzip compression.
 package middlewareinternal
 
 import (
 	"io"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"compress/gzip"
@@ -34,7 +39,9 @@ func (r *loggingResponseWriter) WriteHeader(statusCode int) {
 	r.responseData.status = statusCode
 }
 
+// LoggingMiddleware creates a middleware that logs HTTP requests and responses.
 func LoggingMiddleware(logger *zap.SugaredLogger) func(http.Handler) http.Handler {
+
 	return func(next http.Handler) http.Handler {
 		logFn := func(w http.ResponseWriter, r *http.Request) {
 			start := time.Now()
@@ -66,6 +73,13 @@ func LoggingMiddleware(logger *zap.SugaredLogger) func(http.Handler) http.Handle
 	}
 }
 
+var gzipWriterPool = sync.Pool{
+	New: func() interface{} {
+		w, _ := gzip.NewWriterLevel(io.Discard, gzip.BestSpeed)
+		return w
+	},
+}
+
 type gzipWriter struct {
 	http.ResponseWriter
 	Writer io.Writer
@@ -75,7 +89,9 @@ func (w gzipWriter) Write(b []byte) (int, error) {
 	return w.Writer.Write(b)
 }
 
+// GzipMiddleware creates a middleware that compresses response bodies using gzip.
 func GzipMiddleware(next http.Handler) http.Handler {
+
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !strings.Contains(r.Header.Get("Accept-Encoding"), "gzip") {
 			next.ServeHTTP(w, r)
@@ -83,12 +99,13 @@ func GzipMiddleware(next http.Handler) http.Handler {
 		}
 
 		w.Header().Set("Content-Encoding", "gzip")
-		gz, err := gzip.NewWriterLevel(w, gzip.BestSpeed)
-		if err != nil {
-			io.WriteString(w, err.Error())
-			return
-		}
-		defer gz.Close()
-		next.ServeHTTP(gzipWriter{ResponseWriter: w, Writer: gz}, r)
+		gzw := gzipWriterPool.Get().(*gzip.Writer)
+		gzw.Reset(w)
+		defer func() {
+			gzw.Close()
+			gzipWriterPool.Put(gzw)
+		}()
+		gw := &gzipWriter{ResponseWriter: w, Writer: gzw}
+		next.ServeHTTP(gw, r)
 	})
 }

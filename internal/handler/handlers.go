@@ -1,3 +1,7 @@
+// Package handler provides HTTP handlers for the metrics server.
+//
+// It implements REST endpoints for managing metrics including updating,
+// retrieving, and listing metrics.
 package handler
 
 import (
@@ -21,24 +25,27 @@ import (
 	"github.com/Schera-ole/metrics/internal/service"
 )
 
+// Router creates and configures the HTTP router with all metrics endpoints.
 func Router(
 	logger *zap.SugaredLogger,
 	config *config.ServerConfig,
 	metricService *service.MetricsService,
+	eventChan chan models.AuditEvent,
 ) chi.Router {
+
 	router := chi.NewRouter()
 	router.Use(middlewareinternal.LoggingMiddleware(logger))
 	router.Use(middlewareinternal.GzipMiddleware)
 	router.Use(middleware.StripSlashes)
 	router.Use(middleware.Timeout(15 * time.Second))
 	router.Post("/update/{type}/{metric}/{value}", func(w http.ResponseWriter, r *http.Request) {
-		UpdateHandlerWithParams(w, r, logger, config, metricService)
+		UpdateHandlerWithParams(w, r, logger, config, metricService, eventChan)
 	})
 	router.Post("/update", func(w http.ResponseWriter, r *http.Request) {
-		UpdateHandler(w, r, logger, config, metricService)
+		UpdateHandler(w, r, logger, config, metricService, eventChan)
 	})
 	router.Post("/updates", func(w http.ResponseWriter, r *http.Request) {
-		BatchUpdateHandler(w, r, logger, config, metricService)
+		BatchUpdateHandler(w, r, logger, config, metricService, eventChan)
 	})
 	router.Get("/value/{type}/{name}", func(w http.ResponseWriter, r *http.Request) {
 		GetHandler(w, r, metricService)
@@ -55,13 +62,16 @@ func Router(
 	return router
 }
 
+// BatchUpdateHandler processes batch updates of metrics.
 func BatchUpdateHandler(
 	w http.ResponseWriter,
 	r *http.Request,
 	logger *zap.SugaredLogger,
 	config *config.ServerConfig,
 	metricService *service.MetricsService,
+	eventChan chan models.AuditEvent,
 ) {
+
 	// Read raw body
 	body, err := ReadRequestBody(r)
 	if err != nil {
@@ -99,6 +109,7 @@ func BatchUpdateHandler(
 		return
 	}
 	var preparedMetrics []models.Metric
+	var metricsName []string
 	for _, d := range metrics {
 		if d.Value != nil {
 			preparedMetrics = append(preparedMetrics, models.Metric{
@@ -114,6 +125,7 @@ func BatchUpdateHandler(
 				Value: *d.Delta,
 			})
 		}
+		metricsName = append(metricsName, d.ID)
 	}
 	err = metricService.SetMetrics(r.Context(), preparedMetrics)
 	if err != nil {
@@ -130,8 +142,12 @@ func BatchUpdateHandler(
 			}
 		}
 	}
-
+	if eventChan != nil {
+		SendAuditEvent(metricsName, r.RemoteAddr, eventChan, logger)
+	}
 }
+
+// PingDatabaseHandler checks the database connection health.
 func PingDatabaseHandler(w http.ResponseWriter, r *http.Request, metricService *service.MetricsService, logger *zap.SugaredLogger) {
 	err := metricService.Ping(r.Context())
 	if err != nil {
@@ -142,13 +158,16 @@ func PingDatabaseHandler(w http.ResponseWriter, r *http.Request, metricService *
 	w.WriteHeader(http.StatusOK)
 }
 
+// UpdateHandler processes a single metric update request.
 func UpdateHandler(
 	w http.ResponseWriter,
 	r *http.Request,
 	logger *zap.SugaredLogger,
 	config *config.ServerConfig,
 	metricService *service.MetricsService,
+	eventChan chan models.AuditEvent,
 ) {
+
 	// Read raw body
 	body, err := ReadRequestBody(r)
 	if err != nil {
@@ -216,15 +235,22 @@ func UpdateHandler(
 			}
 		}
 	}
+	if eventChan != nil {
+		metricsList := []string{metrics.ID}
+		SendAuditEvent(metricsList, r.RemoteAddr, eventChan, logger)
+	}
 }
 
+// UpdateHandlerWithParams processes a single metric update request using URL parameters.
 func UpdateHandlerWithParams(
 	w http.ResponseWriter,
 	r *http.Request,
 	logger *zap.SugaredLogger,
 	config *config.ServerConfig,
 	metricService *service.MetricsService,
+	eventChan chan models.AuditEvent,
 ) {
+
 	metricType := chi.URLParam(r, "type")
 	metricName := chi.URLParam(r, "metric")
 	metricValue := chi.URLParam(r, "value")
@@ -267,9 +293,15 @@ func UpdateHandlerWithParams(
 			}
 		}
 	}
+	if eventChan != nil {
+		metricsList := []string{metricName}
+		SendAuditEvent(metricsList, r.RemoteAddr, eventChan, logger)
+	}
 }
 
+// GetValue retrieves a single metric value by its ID and type.
 func GetValue(w http.ResponseWriter, r *http.Request, metricService *service.MetricsService, logger *zap.SugaredLogger, config *config.ServerConfig) {
+
 	var metrics models.MetricsDTO
 	var responseMetric models.MetricsDTO
 
@@ -341,7 +373,9 @@ func GetValue(w http.ResponseWriter, r *http.Request, metricService *service.Met
 	w.Write(responseData)
 }
 
+// GetHandler retrieves a single metric value by its name using URL parameters.
 func GetHandler(w http.ResponseWriter, r *http.Request, metricService *service.MetricsService) {
+
 	metricName := chi.URLParam(r, "name")
 	metricValue, err := metricService.GetMetricByName(r.Context(), metricName)
 	if err != nil {
@@ -352,7 +386,9 @@ func GetHandler(w http.ResponseWriter, r *http.Request, metricService *service.M
 	fmt.Fprintf(w, "%v", metricValue)
 }
 
+// GetListHandler retrieves all metrics and returns them as a formatted list.
 func GetListHandler(w http.ResponseWriter, r *http.Request, metricService *service.MetricsService) {
+
 	var result string
 	metrics, _ := metricService.ListMetrics(r.Context())
 

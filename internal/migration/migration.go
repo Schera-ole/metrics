@@ -1,3 +1,4 @@
+// Package migration provides database migration functionality for the metrics server.
 package migration
 
 import (
@@ -12,6 +13,7 @@ import (
 	"go.uber.org/zap"
 )
 
+// RunMigrations applies database migrations to the PostgreSQL database.
 func RunMigrations(ctx context.Context, dsn string, logger *zap.SugaredLogger) error {
 	logger.Info("Running database migrations...")
 

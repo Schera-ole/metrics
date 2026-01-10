@@ -1,23 +1,30 @@
+// Package main implements the metrics server application.
 package main
 
 import (
 	"context"
 	"log"
 	"net/http"
+	_ "net/http/pprof"
 	"os"
 	"path/filepath"
 	"time"
 
+	_ "github.com/jackc/pgx/v5/stdlib"
+	"go.uber.org/zap"
+
+	"github.com/Schera-ole/metrics/internal/audit"
 	"github.com/Schera-ole/metrics/internal/config"
 	"github.com/Schera-ole/metrics/internal/handler"
 	"github.com/Schera-ole/metrics/internal/migration"
+	models "github.com/Schera-ole/metrics/internal/model"
 	"github.com/Schera-ole/metrics/internal/repository"
 	"github.com/Schera-ole/metrics/internal/service"
-	_ "github.com/jackc/pgx/v5/stdlib"
-	"go.uber.org/zap"
 )
 
+// main initializes and starts the metrics server.
 func main() {
+
 	serverConfig, err := config.NewServerConfig()
 	if err != nil {
 		log.Fatal("Failed to parse configuration: ", err)
@@ -78,6 +85,22 @@ func main() {
 		metricsService = service.NewMetricsService(storage)
 		defer storage.Close()
 	}
+	// Create event channel
+	var eventChan = make(chan models.AuditEvent, 100)
+	if serverConfig.AuditFile != "" || serverConfig.AuditURL != "" {
+		var subs []chan<- models.AuditEvent
+		if serverConfig.AuditFile != "" {
+			fileChan := make(chan models.AuditEvent, 50)
+			subs = append(subs, fileChan)
+			go audit.FileSubscriber(fileChan, *serverConfig)
+		}
+		if serverConfig.AuditURL != "" {
+			urlChan := make(chan models.AuditEvent, 50)
+			subs = append(subs, urlChan)
+			go audit.URLSubscriber(urlChan, *serverConfig)
+		}
+		go audit.Broadcaster(eventChan, subs...)
+	}
 
 	logSugar.Infow(
 		"Starting server",
@@ -90,7 +113,7 @@ func main() {
 	logSugar.Fatal(
 		http.ListenAndServe(
 			serverConfig.Address,
-			handler.Router(logSugar, serverConfig, metricsService),
+			handler.Router(logSugar, serverConfig, metricsService, eventChan),
 		),
 	)
 }

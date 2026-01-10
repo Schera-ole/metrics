@@ -5,16 +5,20 @@ import (
 	"database/sql"
 	"fmt"
 
+	_ "github.com/jackc/pgx/v5/stdlib"
+
 	"github.com/Schera-ole/metrics/internal/config"
 	internalerrors "github.com/Schera-ole/metrics/internal/errors"
 	models "github.com/Schera-ole/metrics/internal/model"
-	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
+// DBStorage implements the Repository interface using a PostgreSQL database.
 type DBStorage struct {
+	// db is the underlying database connection
 	db *sql.DB
 }
 
+// NewDBStorage creates a new database storage instance.
 func NewDBStorage(dsn string) (*DBStorage, error) {
 	dbConnect, err := sql.Open("pgx", dsn)
 	if err != nil {
@@ -23,6 +27,7 @@ func NewDBStorage(dsn string) (*DBStorage, error) {
 	return &DBStorage{db: dbConnect}, nil
 }
 
+// Close releases any resources held by the database storage.
 func (storage *DBStorage) Close() error {
 	return storage.db.Close()
 }
@@ -72,8 +77,8 @@ func (storage *DBStorage) updateMetric(ctx context.Context, tx *sql.Tx, name str
 }
 
 // SetMetrics saves multiple metrics in a single transaction.
+//
 // For each metric, it checks if it exists and either creates a new record or updates the existing one.
-// Counters are incremented (added to existing value) while gauges are replaced (set to new value).
 func (storage *DBStorage) SetMetrics(ctx context.Context, metrics []models.Metric) error {
 	// Start a transaction to ensure atomicity of batch operations
 	tx, err := storage.db.Begin()
@@ -114,8 +119,9 @@ func (storage *DBStorage) SetMetrics(ctx context.Context, metrics []models.Metri
 	return nil
 }
 
-// SetMetric saves a single metric. It checks if the metric exists and either creates a new record or updates the existing one.
-// Counters are incremented (added to existing value) while gauges are replaced (set to new value).
+// SetMetric saves a single metric.
+//
+// It checks if the metric exists and either creates a new record or updates the existing one.
 func (storage *DBStorage) SetMetric(ctx context.Context, name string, value any, typ string) error {
 	tx, err := storage.db.Begin()
 	if err != nil {
@@ -155,6 +161,9 @@ func (storage *DBStorage) SetMetric(ctx context.Context, name string, value any,
 	return nil
 }
 
+// GetMetric retrieves a single metric by its DTO.
+//
+// It returns a MetricsDTO with the current value of the requested metric.
 func (storage *DBStorage) GetMetric(ctx context.Context, metrics models.MetricsDTO) (models.MetricsDTO, error) {
 	var metricType string
 	var value float64
@@ -185,6 +194,9 @@ func (storage *DBStorage) GetMetric(ctx context.Context, metrics models.MetricsD
 	return responseMetrics, nil
 }
 
+// GetMetricByName retrieves a single metric by its name.
+//
+// It returns the raw value of the requested metric (float64 for gauges, int64 for counters).
 func (storage *DBStorage) GetMetricByName(ctx context.Context, name string) (any, error) {
 	var metricType string
 	var value float64
@@ -208,6 +220,9 @@ func (storage *DBStorage) GetMetricByName(ctx context.Context, name string) (any
 	}
 }
 
+// DeleteMetric removes a metric by its name using soft deletion.
+//
+// It sets the deleted_at timestamp for the metric, marking it as deleted without actually removing it from the database.
 func (storage *DBStorage) DeleteMetric(ctx context.Context, name string) error {
 	// Soft delete: set deleted_at timestamp
 	query := "UPDATE metrics SET deleted_at = NOW() WHERE name = $1 AND deleted_at IS NULL"
@@ -218,6 +233,9 @@ func (storage *DBStorage) DeleteMetric(ctx context.Context, name string) error {
 	return nil
 }
 
+// ListMetrics retrieves all metrics that are not soft deleted.
+//
+// It returns a slice of Metric structs containing all gauge and counter values.
 func (storage *DBStorage) ListMetrics(ctx context.Context) ([]models.Metric, error) {
 	var formattedMetrics []models.Metric
 	query := "SELECT name, type, value FROM metrics WHERE deleted_at IS NULL"
@@ -258,6 +276,9 @@ func (storage *DBStorage) ListMetrics(ctx context.Context) ([]models.Metric, err
 	return formattedMetrics, nil
 }
 
+// Ping checks the database connection health.
+//
+// It uses the database's built-in ping functionality to verify connectivity.
 func (storage *DBStorage) Ping(ctx context.Context) error {
 	err := storage.db.PingContext(ctx)
 	if err != nil {
