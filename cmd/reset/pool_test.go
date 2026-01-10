@@ -1,13 +1,12 @@
-package reset
+package main
 
 import (
 	"fmt"
 	"testing"
 )
 
-// TestPool demonstrates basic usage of the Pool
+// TestPool show basic usage of Pool
 func TestPool(t *testing.T) {
-	// Create a new pool for TestStruct
 	pool := New[*TestStruct]()
 
 	// Get an object from the pool
@@ -17,15 +16,14 @@ func TestPool(t *testing.T) {
 		obj = &TestStruct{}
 	}
 
-	// Use the object
 	obj.Name = "Test"
 	obj.Age = 30
 	t.Logf("Object: %+v", obj)
 
-	// Put the object back into the pool
+	// Put the object back
 	pool.Put(obj)
 
-	// Get the same object from the pool again
+	// Get object from the pool again
 	obj2 := pool.Get()
 	t.Logf("Object from pool: %+v", obj2)
 
@@ -37,25 +35,22 @@ func TestPool(t *testing.T) {
 
 // Example usage of the Pool
 func ExamplePool() {
-	// Create a new pool for TestStruct
 	pool := New[*TestStruct]()
 
 	// Get an object from the pool
 	obj := pool.Get()
 	if obj == nil {
-		fmt.Println("Creating new TestStruct")
 		obj = &TestStruct{}
 	}
 
-	// Use the object
 	obj.Name = "Test"
 	obj.Age = 30
 	fmt.Printf("Object: %+v\n", obj)
 
-	// Put the object back into the pool
+	// Put the object back
 	pool.Put(obj)
 
-	// Get the same object from the pool again
+	// Get object from the pool again
 	obj2 := pool.Get()
 	fmt.Printf("Object from pool: %+v\n", obj2)
 

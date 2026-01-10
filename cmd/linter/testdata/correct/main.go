@@ -6,9 +6,9 @@ import (
 )
 
 func main() {
-	// Вызов log.Fatal в main
-	log.Fatal("это допустимо")
+	// Call log.Fatal in main
+	log.Fatal("it is okay")
 
-	// Вызов exit в main
+	// Call exit in main
 	os.Exit(1)
 }

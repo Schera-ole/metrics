@@ -1,4 +1,4 @@
-package reset
+package main
 
 import (
 	"bytes"
@@ -14,7 +14,7 @@ import (
 	"strings"
 )
 
-// PackageStructs stores information about structures that need reset for each package
+// Stores information about structures that need reset
 type PackageStructs struct {
 	FilePaths []string      // Paths to package files with found structures
 	Structs   []*StructInfo // Found structures
@@ -36,7 +36,6 @@ func run() error {
 		return fmt.Errorf("failed to get working directory: %w", err)
 	}
 
-	// Determine the project root directory (parent directory of metrics)
 	projectRoot := filepath.Join(wd, "..", "..")
 
 	log.Printf("Scanning packages in project root: %s", projectRoot)
@@ -57,8 +56,8 @@ func scanPackage(path string, d fs.DirEntry, err error) error {
 		return err
 	}
 
-	// Skip vendor directories and other service directories
-	if d.IsDir() && (d.Name() == "vendor" || d.Name() == ".git" || d.Name() == "node_modules") {
+	// Skip unnecessary dirs
+	if d.IsDir() && (d.Name() == ".git" || d.Name() == "profiles") {
 		return filepath.SkipDir
 	}
 
@@ -66,11 +65,11 @@ func scanPackage(path string, d fs.DirEntry, err error) error {
 	if !d.IsDir() && isGoFile(d.Name()) {
 		log.Printf("Processing file: %s", path)
 
-		// Parse Go file to find structures with // generate:reset comment
+		// Parse Go file to find structures with generate:reset comment
 		structs, err := parseGoFile(path)
 		if err != nil {
 			log.Printf("Failed to parse file %s: %v", path, err)
-			return nil // Continue processing other files
+			return nil
 		}
 
 		// If we found structures with the comment, save information about them
@@ -121,16 +120,14 @@ func parseGoFile(filePath string) ([]*StructInfo, error) {
 
 	var resetStructs []*StructInfo
 
-	// Go through all declarations in the file
 	for _, decl := range node.Decls {
 		genDecl, ok := decl.(*ast.GenDecl)
 		if !ok || genDecl.Tok != token.TYPE {
 			continue
 		}
 
-		// Check for the presence of the // generate:reset comment
+		// Check for the presence of the generate:reset comment
 		if hasResetComment(genDecl.Doc) {
-			// Look for structures in the type declaration
 			for _, spec := range genDecl.Specs {
 				typeSpec, ok := spec.(*ast.TypeSpec)
 				if !ok {
@@ -154,16 +151,14 @@ func parseGoFile(filePath string) ([]*StructInfo, error) {
 	return resetStructs, nil
 }
 
-// hasResetComment checks for the presence of the // generate:reset comment
+// Checks for the presence of the generate:reset comment
 func hasResetComment(commentGroup *ast.CommentGroup) bool {
 	if commentGroup == nil {
 		return false
 	}
 
-	// Go through all comments in the group
 	for _, comment := range commentGroup.List {
-		// Check if the comment contains the text "// generate:reset"
-		if strings.Contains(comment.Text, "// generate:reset") {
+		if strings.Contains(comment.Text, "generate:reset") {
 			return true
 		}
 	}
@@ -178,16 +173,15 @@ func generateResetMethod(structName string, structType *ast.StructType) string {
 	// Write the method signature
 	buf.WriteString(fmt.Sprintf("// Reset resets all field values of structure %s to zero value\n", structName))
 	buf.WriteString(fmt.Sprintf("func (s *%s) Reset() {\n", structName))
-
+	buf.WriteString("\tif s == nil {\n\t\treturn\n\t}\n")
 	// Generate the Reset() method body
 	if structType.Fields != nil {
 		for _, field := range structType.Fields.List {
 			if len(field.Names) > 0 && field.Names[0] != nil {
 				fieldName := field.Names[0].Name
 
-				// Determine the zero value for the field depending on its type
-				zeroValue := getZeroValue(field.Type)
-				buf.WriteString(fmt.Sprintf("\ts.%s = %s\n", fieldName, zeroValue))
+				resetCode := getResetCode(fieldName, field.Type)
+				buf.WriteString(resetCode)
 			}
 		}
 	}
@@ -197,46 +191,62 @@ func generateResetMethod(structName string, structType *ast.StructType) string {
 	return buf.String()
 }
 
-// getZeroValue returns the zero value for the specified type
-func getZeroValue(expr ast.Expr) string {
+// getResetCode returns the reset code for the specified field
+func getResetCode(fieldName string, expr ast.Expr) string {
 	switch t := expr.(type) {
 	case *ast.Ident:
 		// Simple types
-		switch t.Name {
-		case "bool":
-			return "false"
-		case "string":
-			return "\"\""
-		case "int", "int8", "int16", "int32", "int64",
-			"uint", "uint8", "uint16", "uint32", "uint64", "uintptr":
-			return "0"
-		case "float32", "float64":
-			return "0.0"
-		case "complex64", "complex128":
-			return "0i"
-		default:
-			// For custom types, return nil
-			return "nil"
+		if zeroValue, exists := builtInTypeZeroValues[t.Name]; exists {
+			return fmt.Sprintf("\ts.%s = %s\n", fieldName, zeroValue)
 		}
+		// For custom types
+		return fmt.Sprintf("\tif resetter, ok := s.%s.(interface{ Reset() }); ok {\n\t\tresetter.Reset()\n\t}\n", fieldName)
 	case *ast.StarExpr:
 		// Pointers
-		return "nil"
+		pointedType := formatNode(t.X)
+		if isBuiltInType(pointedType) {
+			zeroValue := getZeroValueForType(pointedType)
+			return fmt.Sprintf("\tif s.%s != nil {\n\t\t*s.%s = %s\n\t}\n", fieldName, fieldName, zeroValue)
+		}
+		return fmt.Sprintf("\tif s.%s != nil {\n\t\ts.%s.Reset()\n\t}\n", fieldName, fieldName)
 	case *ast.ArrayType:
-		// Arrays and slices
-		return "nil"
+		if t.Len == nil {
+			// Slice - truncate to length 0
+			return fmt.Sprintf("\ts.%s = s.%s[:0]\n", fieldName, fieldName)
+		} else {
+			// Array - reset each element to zero value
+			elementType := formatNode(t.Elt)
+			if elementType != "" {
+				return fmt.Sprintf("\tfor i := range s.%s {\n\t\tvar zeroValue %s\n\t\ts.%s[i] = zeroValue\n\t}\n", fieldName, elementType, fieldName)
+			} else {
+				return fmt.Sprintf("\ts.%s = nil\n", fieldName)
+			}
+		}
 	case *ast.MapType:
-		// Maps
-		return "nil"
+		// Maps - use clear function
+		return fmt.Sprintf("\tclear(s.%s)\n", fieldName)
+	case *ast.StructType:
+		return fmt.Sprintf("\tif resetter, ok := s.%s.(interface{ Reset() }); ok {\n\t\tresetter.Reset()\n\t}\n", fieldName)
 	case *ast.ChanType:
 		// Channels
-		return "nil"
+		return fmt.Sprintf("\ts.%s = nil\n", fieldName)
 	case *ast.FuncType:
 		// Functions
-		return "nil"
+		return fmt.Sprintf("\ts.%s = nil\n", fieldName)
 	default:
-		// For all other types, return nil
-		return "nil"
+		// For all other types, use interface check
+		return fmt.Sprintf("\tif resetter, ok := s.%s.(interface{ Reset() }); ok {\n\t\tresetter.Reset()\n\t}\n", fieldName)
 	}
+}
+
+// formatNode converts an ast.Node to its string representation
+func formatNode(node ast.Node) string {
+	var buf bytes.Buffer
+	err := format.Node(&buf, token.NewFileSet(), node)
+	if err != nil {
+		return ""
+	}
+	return buf.String()
 }
 
 // getPackageName gets the package name from a Go file
@@ -250,7 +260,7 @@ func getPackageName(filePath string) (string, error) {
 	return node.Name.Name, nil
 }
 
-// generateAllResetMethods generates Reset() methods for all found structures by packages
+// generateAllResetMethods generates Reset() methods for all found structures
 func generateAllResetMethods() error {
 	// Go through all packages with found structures
 	for dir, packageStructs := range packageStructsMap {
@@ -288,7 +298,6 @@ func generateAllResetMethods() error {
 				buf.WriteString("\n")
 			}
 
-			// Generate the Reset() method for the structure
 			methodCode := generateResetMethod(structInfo.Name, structInfo.Type)
 			buf.WriteString(methodCode)
 		}
@@ -311,4 +320,34 @@ func generateAllResetMethods() error {
 	}
 
 	return nil
+}
+
+// builtInTypeZeroValues maps built-in Go types to their zero values
+var builtInTypeZeroValues = map[string]string{
+	"bool":      "false",
+	"string":    "\"\"",
+	"int":       "0",
+	"int32":     "0",
+	"int64":     "0",
+	"uint":      "0",
+	"uint32":    "0",
+	"uint64":    "0",
+	"float32":   "0.0",
+	"float64":   "0.0",
+	"complex64": "0i",
+	"byte":      "0",
+}
+
+// isBuiltInType checks if a type is a built-in Go type
+func isBuiltInType(typeName string) bool {
+	_, exists := builtInTypeZeroValues[typeName]
+	return exists
+}
+
+// getZeroValueForType returns the zero value for a built-in type as a string
+func getZeroValueForType(typeName string) string {
+	if zeroValue, exists := builtInTypeZeroValues[typeName]; exists {
+		return zeroValue
+	}
+	return "nil"
 }

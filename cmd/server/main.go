@@ -22,8 +22,32 @@ import (
 	"github.com/Schera-ole/metrics/internal/service"
 )
 
+var (
+	buildVersion string
+	buildDate    string
+	buildCommit  string
+)
+
+// printBuildInfo prints the build information to stdout
+func printBuildInfo(version, date, commit string) {
+	if version == "" {
+		version = "N/A"
+	}
+	if date == "" {
+		date = "N/A"
+	}
+	if commit == "" {
+		commit = "N/A"
+	}
+	log.Printf("Build version: %s\n", version)
+	log.Printf("Build date: %s\n", date)
+	log.Printf("Build commit: %s\n", commit)
+}
+
 // main initializes and starts the metrics server.
 func main() {
+	// Print build information
+	printBuildInfo(buildVersion, buildDate, buildCommit)
 
 	serverConfig, err := config.NewServerConfig()
 	if err != nil {

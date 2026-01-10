@@ -1,4 +1,4 @@
-package reset
+package main
 
 // TestStruct - test structure for checking Reset method generation
 // generate:reset
@@ -24,6 +24,7 @@ type AnotherTestStruct struct {
 }
 
 // NestedStruct - nested structure
+// generate:reset
 type NestedStruct struct {
 	Field1 string
 	Field2 int
