@@ -49,7 +49,7 @@ func main() {
 			logSugar.Errorf("error creating directory: %w", err)
 		}
 		if serverConfig.Restore {
-			restoreCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			restoreCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer cancel()
 			metricsService.RestoreMetrics(restoreCtx, serverConfig.FileStoragePath, logSugar)
 		}
@@ -72,7 +72,7 @@ func main() {
 			}()
 		}
 	} else {
-		migCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		migCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 		err = migration.RunMigrations(migCtx, serverConfig.DatabaseDSN, logSugar)
 		if err != nil {
