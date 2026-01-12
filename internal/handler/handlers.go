@@ -18,6 +18,7 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	"go.uber.org/zap"
 
+	"github.com/Schera-ole/metrics/internal/audit"
 	"github.com/Schera-ole/metrics/internal/config"
 	internalerrors "github.com/Schera-ole/metrics/internal/errors"
 	middlewareinternal "github.com/Schera-ole/metrics/internal/middleware"
@@ -30,7 +31,7 @@ func Router(
 	logger *zap.SugaredLogger,
 	config *config.ServerConfig,
 	metricService *service.MetricsService,
-	eventChan chan models.AuditEvent,
+	auditLogger audit.AuditLogger,
 ) chi.Router {
 
 	router := chi.NewRouter()
@@ -39,13 +40,13 @@ func Router(
 	router.Use(middleware.StripSlashes)
 	router.Use(middleware.Timeout(15 * time.Second))
 	router.Post("/update/{type}/{metric}/{value}", func(w http.ResponseWriter, r *http.Request) {
-		UpdateHandlerWithParams(w, r, logger, config, metricService, eventChan)
+		UpdateHandlerWithParams(w, r, logger, config, metricService, auditLogger)
 	})
 	router.Post("/update", func(w http.ResponseWriter, r *http.Request) {
-		UpdateHandler(w, r, logger, config, metricService, eventChan)
+		UpdateHandler(w, r, logger, config, metricService, auditLogger)
 	})
 	router.Post("/updates", func(w http.ResponseWriter, r *http.Request) {
-		BatchUpdateHandler(w, r, logger, config, metricService, eventChan)
+		BatchUpdateHandler(w, r, logger, config, metricService, auditLogger)
 	})
 	router.Get("/value/{type}/{name}", func(w http.ResponseWriter, r *http.Request) {
 		GetHandler(w, r, metricService)
@@ -69,7 +70,7 @@ func BatchUpdateHandler(
 	logger *zap.SugaredLogger,
 	config *config.ServerConfig,
 	metricService *service.MetricsService,
-	eventChan chan models.AuditEvent,
+	auditLogger audit.AuditLogger,
 ) {
 
 	// Read raw body
@@ -142,9 +143,7 @@ func BatchUpdateHandler(
 			}
 		}
 	}
-	if eventChan != nil {
-		SendAuditEvent(metricsName, r.RemoteAddr, eventChan, logger)
-	}
+	SendAuditEvent(metricsName, r.RemoteAddr, auditLogger, logger)
 }
 
 // PingDatabaseHandler checks the database connection health.
@@ -165,7 +164,7 @@ func UpdateHandler(
 	logger *zap.SugaredLogger,
 	config *config.ServerConfig,
 	metricService *service.MetricsService,
-	eventChan chan models.AuditEvent,
+	auditLogger audit.AuditLogger,
 ) {
 
 	// Read raw body
@@ -235,10 +234,8 @@ func UpdateHandler(
 			}
 		}
 	}
-	if eventChan != nil {
-		metricsList := []string{metrics.ID}
-		SendAuditEvent(metricsList, r.RemoteAddr, eventChan, logger)
-	}
+	metricsList := []string{metrics.ID}
+	SendAuditEvent(metricsList, r.RemoteAddr, auditLogger, logger)
 }
 
 // UpdateHandlerWithParams processes a single metric update request using URL parameters.
@@ -248,7 +245,7 @@ func UpdateHandlerWithParams(
 	logger *zap.SugaredLogger,
 	config *config.ServerConfig,
 	metricService *service.MetricsService,
-	eventChan chan models.AuditEvent,
+	auditLogger audit.AuditLogger,
 ) {
 
 	metricType := chi.URLParam(r, "type")
@@ -259,6 +256,8 @@ func UpdateHandlerWithParams(
 		return
 	}
 	var Metric any
+	// Log the metricType for debugging
+	// logger.Infof("metricType: '%s', models.Gauge: '%s', models.Counter: '%s'", metricType, models.Gauge, models.Counter)
 	switch metricType {
 	case models.Gauge:
 		floatVal, floatErr := strconv.ParseFloat(metricValue, 64)
@@ -293,10 +292,8 @@ func UpdateHandlerWithParams(
 			}
 		}
 	}
-	if eventChan != nil {
-		metricsList := []string{metricName}
-		SendAuditEvent(metricsList, r.RemoteAddr, eventChan, logger)
-	}
+	metricsList := []string{metricName}
+	SendAuditEvent(metricsList, r.RemoteAddr, auditLogger, logger)
 }
 
 // GetValue retrieves a single metric value by its ID and type.
