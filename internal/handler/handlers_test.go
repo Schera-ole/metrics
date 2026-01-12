@@ -33,7 +33,7 @@ func testSetup(t *testing.T) (*service.MetricsService, *config.ServerConfig, *za
 	testConfig := &config.ServerConfig{
 		Address:         "localhost:8080",
 		StoreInterval:   0,
-		FileStoragePath: "./tmp/test_metrics.json",
+		FileStoragePath: "/home/schera/metrics/tmp/test_metrics.json",
 		Restore:         false,
 	}
 
@@ -100,9 +100,29 @@ func (m *MockedStorage) Close() error {
 	return nil
 }
 
+// mockAuditLogger is a mock implementation of the AuditLogger interface for testing.
+type mockAuditLogger struct {
+	logCalls []auditLogCall
+}
+
+// auditLogCall represents a call to the Log method.
+type auditLogCall struct {
+	metrics   []string
+	ipAddress string
+}
+
+// Log implements the AuditLogger interface.
+func (m *mockAuditLogger) Log(metrics []string, ipAddress string) {
+	m.logCalls = append(m.logCalls, auditLogCall{
+		metrics:   metrics,
+		ipAddress: ipAddress,
+	})
+}
+
 func TestUpdateHandler(t *testing.T) {
 	metricService, testConfig, logSugar := testSetup(t)
-	ts := httptest.NewServer(Router(logSugar, testConfig, metricService, nil))
+	mockAudit := &mockAuditLogger{}
+	ts := httptest.NewServer(Router(logSugar, testConfig, metricService, mockAudit))
 	defer ts.Close()
 
 	tests := []struct {
@@ -171,12 +191,13 @@ func TestUpdateHandler(t *testing.T) {
 
 func TestGetHandler(t *testing.T) {
 	metricService, testConfig, logSugar := testSetup(t)
+	mockAudit := &mockAuditLogger{}
 
 	// Set a gauge metric
 	err := metricService.SetMetric(context.Background(), "TestGauge", 42.5, models.Gauge)
 	require.NoError(t, err)
 
-	ts := httptest.NewServer(Router(logSugar, testConfig, metricService, nil))
+	ts := httptest.NewServer(Router(logSugar, testConfig, metricService, mockAudit))
 	defer ts.Close()
 
 	r := testRequest(t, ts, http.MethodGet, "/value/gauge/TestGauge", nil)
@@ -188,12 +209,13 @@ func TestGetHandler(t *testing.T) {
 
 func TestGetValueHandler(t *testing.T) {
 	metricService, testConfig, logSugar := testSetup(t)
+	mockAudit := &mockAuditLogger{}
 
 	// Set a counter metric
 	err := metricService.SetMetric(context.Background(), "TestCounter", int64(10), models.Counter)
 	require.NoError(t, err)
 
-	ts := httptest.NewServer(Router(logSugar, testConfig, metricService, nil))
+	ts := httptest.NewServer(Router(logSugar, testConfig, metricService, mockAudit))
 	defer ts.Close()
 
 	requestBody := `{"id":"TestCounter","type":"counter"}`
@@ -214,11 +236,12 @@ func TestGetValueHandler(t *testing.T) {
 
 func TestGetListHandler(t *testing.T) {
 	metricService, testConfig, logSugar := testSetup(t)
+	mockAudit := &mockAuditLogger{}
 
 	_ = metricService.SetMetric(context.Background(), "M1", 1.0, models.Gauge)
 	_ = metricService.SetMetric(context.Background(), "M2", int64(2), models.Counter)
 
-	ts := httptest.NewServer(Router(logSugar, testConfig, metricService, nil))
+	ts := httptest.NewServer(Router(logSugar, testConfig, metricService, mockAudit))
 	defer ts.Close()
 
 	r := testRequest(t, ts, http.MethodGet, "/", nil)
@@ -232,7 +255,8 @@ func TestGetListHandler(t *testing.T) {
 
 func TestPingHandler(t *testing.T) {
 	metricService, testConfig, logSugar := testSetup(t)
-	ts := httptest.NewServer(Router(logSugar, testConfig, metricService, nil))
+	mockAudit := &mockAuditLogger{}
+	ts := httptest.NewServer(Router(logSugar, testConfig, metricService, mockAudit))
 	defer ts.Close()
 
 	r := testRequest(t, ts, http.MethodGet, "/ping", nil)
@@ -242,7 +266,8 @@ func TestPingHandler(t *testing.T) {
 
 func TestBatchUpdateHandler(t *testing.T) {
 	metricService, testConfig, logSugar := testSetup(t)
-	ts := httptest.NewServer(Router(logSugar, testConfig, metricService, nil))
+	mockAudit := &mockAuditLogger{}
+	ts := httptest.NewServer(Router(logSugar, testConfig, metricService, mockAudit))
 	defer ts.Close()
 
 	// Prepare batch payload
@@ -270,7 +295,8 @@ func TestBatchUpdateHandler(t *testing.T) {
 
 func TestUpdateHandlerWithParams(t *testing.T) {
 	metricService, testConfig, logSugar := testSetup(t)
-	ts := httptest.NewServer(Router(logSugar, testConfig, metricService, nil))
+	mockAudit := &mockAuditLogger{}
+	ts := httptest.NewServer(Router(logSugar, testConfig, metricService, mockAudit))
 	defer ts.Close()
 
 	tests := []struct {
@@ -328,7 +354,7 @@ func TestUpdateHandlerWithParams(t *testing.T) {
 				// Extract metric name from endpoint: /update/type/name/value
 				parts := strings.Split(tt.endpoint, "/")
 				if len(parts) >= 5 {
-					metricName := parts[4]
+					metricName := parts[3] // Index 3 contains the metric name
 					val, err := metricService.GetMetricByName(context.Background(), metricName)
 					require.NoError(t, err)
 					assert.Equal(t, tt.expectedValue, val)

@@ -10,11 +10,10 @@ import (
 	"io"
 	"net/http"
 	"sync"
-	"time"
 
 	"go.uber.org/zap"
 
-	models "github.com/Schera-ole/metrics/internal/model"
+	"github.com/Schera-ole/metrics/internal/audit"
 )
 
 // CalculatedHash calculates the HMAC SHA256 hash of the compressed body using the provided key.
@@ -131,18 +130,7 @@ func ReadRequestBody(r *http.Request) ([]byte, error) {
 	return body, nil
 }
 
-// SendAuditEvent sends an audit event to the event channel.
-func SendAuditEvent(metrics []string, remoteAddr string, eventChan chan models.AuditEvent, logger *zap.SugaredLogger) {
-
-	event := models.AuditEvent{
-		TS:        time.Now().Format(time.RFC3339),
-		Metrics:   metrics,
-		IPAddress: remoteAddr,
-	}
-	select {
-	case eventChan <- event:
-		// Message was sent
-	default:
-		logger.Info("channel is full")
-	}
+// SendAuditEvent sends an audit event using the AuditLogger interface.
+func SendAuditEvent(metrics []string, remoteAddr string, auditLogger audit.AuditLogger, logger *zap.SugaredLogger) {
+	auditLogger.Log(metrics, remoteAddr)
 }

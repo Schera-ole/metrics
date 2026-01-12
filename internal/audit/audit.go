@@ -11,10 +11,46 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"time"
 
 	"github.com/Schera-ole/metrics/internal/config"
 	models "github.com/Schera-ole/metrics/internal/model"
 )
+
+// AuditLogger is an interface for logging audit events.
+type AuditLogger interface {
+	// Log sends an audit event with the specified metrics, IP address, and timestamp.
+	Log(metrics []string, ipAddress string)
+}
+
+// auditLogger is a concrete implementation of AuditLogger that sends events to a channel.
+type auditLogger struct {
+	eventChan chan models.AuditEvent
+}
+
+// NewAuditLogger creates a new AuditLogger that sends events to the provided channel.
+func NewAuditLogger(eventChan chan models.AuditEvent) AuditLogger {
+	return &auditLogger{
+		eventChan: eventChan,
+	}
+}
+
+// Log sends an audit event with the specified metrics and IP address.
+func (a *auditLogger) Log(metrics []string, ipAddress string) {
+	event := models.AuditEvent{
+		TS:        time.Now().Format(time.RFC3339),
+		Metrics:   metrics,
+		IPAddress: ipAddress,
+	}
+
+	select {
+	case a.eventChan <- event:
+		// Event sent successfully
+	default:
+		// Channel is full, drop the event to prevent blocking
+		fmt.Printf("AuditLogger: dropped event, channel is full\n")
+	}
+}
 
 type Subscriber struct {
 	ID int
@@ -23,13 +59,17 @@ type Subscriber struct {
 // Broadcaster distributes audit events to multiple subscriber channels.
 //
 // It receives events from a source channel and sends them to all provided subscriber channels
-// using goroutines to ensure non-blocking delivery.
+// using select with default case to prevent blocking and goroutine leaks.
 func Broadcaster(source <-chan models.AuditEvent, subs ...chan<- models.AuditEvent) {
 	for evt := range source {
 		for _, subChan := range subs {
-			go func(ch chan<- models.AuditEvent, e models.AuditEvent) {
-				ch <- e
-			}(subChan, evt)
+			select {
+			case subChan <- evt:
+				// Event sent successfully
+			default:
+				// Channel is blocked, discard event to prevent goroutine leak
+				fmt.Printf("Broadcaster: dropped event for blocked subscriber channel\n")
+			}
 		}
 	}
 }

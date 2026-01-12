@@ -52,8 +52,8 @@ func (ms *MemStorage) SetMetric(ctx context.Context, name string, value any, typ
 			ms.counters[name] += val
 		} else {
 			ms.counters[name] = val
-			ms.types[name] = typ
 		}
+		ms.types[name] = typ
 	case config.GaugeType:
 		val := value.(float64)
 		ms.gauges[name] = val
@@ -187,8 +187,8 @@ func (ms *MemStorage) SetMetrics(ctx context.Context, metrics []models.Metric) e
 				ms.counters[metric.Name] += val
 			} else {
 				ms.counters[metric.Name] = val
-				ms.types[metric.Name] = metric.Type
 			}
+			ms.types[metric.Name] = metric.Type
 		case config.GaugeType:
 			val := metric.Value.(float64)
 			ms.gauges[metric.Name] = val

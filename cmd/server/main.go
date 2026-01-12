@@ -73,7 +73,7 @@ func main() {
 			logSugar.Errorf("error creating directory: %w", err)
 		}
 		if serverConfig.Restore {
-			restoreCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			restoreCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer cancel()
 			metricsService.RestoreMetrics(restoreCtx, serverConfig.FileStoragePath, logSugar)
 		}
@@ -96,7 +96,7 @@ func main() {
 			}()
 		}
 	} else {
-		migCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		migCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 		err = migration.RunMigrations(migCtx, serverConfig.DatabaseDSN, logSugar)
 		if err != nil {
@@ -126,6 +126,15 @@ func main() {
 		go audit.Broadcaster(eventChan, subs...)
 	}
 
+	// Create audit logger
+	var auditLogger audit.AuditLogger
+	if serverConfig.AuditFile != "" || serverConfig.AuditURL != "" {
+		auditLogger = audit.NewAuditLogger(eventChan)
+	} else {
+		// Create a no-op audit logger if auditing is disabled
+		auditLogger = &noopAuditLogger{}
+	}
+
 	logSugar.Infow(
 		"Starting server",
 		"address", serverConfig.Address,
@@ -137,7 +146,15 @@ func main() {
 	logSugar.Fatal(
 		http.ListenAndServe(
 			serverConfig.Address,
-			handler.Router(logSugar, serverConfig, metricsService, eventChan),
+			handler.Router(logSugar, serverConfig, metricsService, auditLogger),
 		),
 	)
+}
+
+// noopAuditLogger is a no-op implementation of AuditLogger for when auditing is disabled.
+type noopAuditLogger struct{}
+
+// Log implements the AuditLogger interface but does nothing.
+func (n *noopAuditLogger) Log(metrics []string, ipAddress string) {
+	// No-op implementation
 }
