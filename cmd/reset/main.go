@@ -346,7 +346,7 @@ func isBuiltInType(typeName string) bool {
 
 // getZeroValueForType returns the zero value for a built-in type as a string
 func getZeroValueForType(typeName string) string {
-	if zeroValue, exists := builtInTypeZeroValues[typeName]; exists {
+	if zeroValue, ok := builtInTypeZeroValues[typeName]; ok {
 		return zeroValue
 	}
 	return "nil"
