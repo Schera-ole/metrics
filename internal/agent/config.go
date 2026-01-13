@@ -3,7 +3,7 @@ package agent
 
 import (
 	"flag"
-	"log"
+	"fmt"
 	"os"
 	"strconv"
 )
@@ -57,7 +57,7 @@ func NewAgentConfig() (*AgentConfig, error) {
 		if envValue := os.Getenv(envVar); envValue != "" {
 			interval, err := strconv.Atoi(envValue)
 			if err != nil {
-				log.Fatalf("Invalid %s value: %s", envVar, envValue)
+				return nil, fmt.Errorf("invalid %s value: %s", envVar, envValue)
 			}
 			*flag = interval
 		}

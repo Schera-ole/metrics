@@ -34,6 +34,12 @@ import (
 	models "github.com/Schera-ole/metrics/internal/model"
 )
 
+var (
+	buildVersion string = "N/A"
+	buildDate    string = "N/A"
+	buildCommit  string = "N/A"
+)
+
 // Counter tracks the number of times metrics have been collected.
 type Counter struct {
 	// Value is the current count of metric collection cycles
@@ -269,6 +275,10 @@ func worker(client *http.Client, url string, key string, jobs <-chan []agent.Met
 
 // main initializes and starts the metrics collection agent.
 func main() {
+	// Print build information
+	log.Printf("Build version: %s\n", buildVersion)
+	log.Printf("Build date: %s\n", buildDate)
+	log.Printf("Build commit: %s\n", buildCommit)
 
 	agentConfig, err := agent.NewAgentConfig()
 	if err != nil {
