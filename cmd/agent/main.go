@@ -35,9 +35,9 @@ import (
 )
 
 var (
-	buildVersion string
-	buildDate    string
-	buildCommit  string
+	buildVersion string = "N/A"
+	buildDate    string = "N/A"
+	buildCommit  string = "N/A"
 )
 
 // Counter tracks the number of times metrics have been collected.
@@ -276,7 +276,9 @@ func worker(client *http.Client, url string, key string, jobs <-chan []agent.Met
 // main initializes and starts the metrics collection agent.
 func main() {
 	// Print build information
-	printBuildInfo(buildVersion, buildDate, buildCommit)
+	log.Printf("Build version: %s\n", buildVersion)
+	log.Printf("Build date: %s\n", buildDate)
+	log.Printf("Build commit: %s\n", buildCommit)
 
 	agentConfig, err := agent.NewAgentConfig()
 	if err != nil {
@@ -311,20 +313,4 @@ func main() {
 	<-sigChan
 	log.Println("Shutting down...")
 	close(jobs)
-}
-
-// printBuildInfo prints the build information to stdout
-func printBuildInfo(version, date, commit string) {
-	if version == "" {
-		version = "N/A"
-	}
-	if date == "" {
-		date = "N/A"
-	}
-	if commit == "" {
-		commit = "N/A"
-	}
-	log.Printf("Build version: %s\n", version)
-	log.Printf("Build date: %s\n", date)
-	log.Printf("Build commit: %s\n", commit)
 }

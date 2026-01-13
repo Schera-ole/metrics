@@ -5,6 +5,7 @@ package main
 
 import (
 	"go/ast"
+	"go/types"
 
 	"golang.org/x/tools/go/analysis"
 	"golang.org/x/tools/go/analysis/passes/inspect"
@@ -37,26 +38,37 @@ func run(pass *analysis.Pass) (interface{}, error) {
 	inspect.Preorder(nodeFilter, func(n ast.Node) {
 		switch node := n.(type) {
 		case *ast.FuncDecl:
-			if pass.Pkg.Name() == "main" && node.Name.Name == "main" {
-				inMain = true
-			} else {
-				inMain = false
-			}
+			// Check if we're in the main function of the main package
+			inMain = pass.Pkg.Name() == "main" && node.Name.Name == "main"
 		case *ast.CallExpr:
 			if ident, ok := node.Fun.(*ast.Ident); ok && ident.Name == "panic" {
 				pass.Reportf(ident.Pos(), "found usage of panic")
 			}
-
 			if !inMain {
-				if sel, ok := node.Fun.(*ast.SelectorExpr); ok {
-					if ident, ok := sel.X.(*ast.Ident); ok {
-						switch ident.Name + "." + sel.Sel.Name {
-						case "log.Fatal", "log.Fatalf", "log.Fatalln":
-							pass.Reportf(node.Pos(), "found usage of %s outside of main function", ident.Name+"."+sel.Sel.Name)
-						case "os.Exit":
-							pass.Reportf(node.Pos(), "found usage of %s outside of main function", ident.Name+"."+sel.Sel.Name)
-						}
-					}
+				sel, ok := node.Fun.(*ast.SelectorExpr)
+				if !ok {
+					return
+				}
+				pkgIdent, ok := sel.X.(*ast.Ident)
+				if !ok {
+					return
+				}
+				pkgObj, ok := pass.TypesInfo.Uses[pkgIdent]
+				if !ok {
+					return
+				}
+				// Check if the object is a package name
+				pkgName, ok := pkgObj.(*types.PkgName)
+				if !ok {
+					return
+				}
+				// Get the actual imported package path
+				pkgPath := pkgName.Imported().Path()
+				switch pkgPath + "." + sel.Sel.Name {
+				case "log.Fatal", "log.Fatalf", "log.Fatalln":
+					pass.Reportf(node.Pos(), "found usage of %s.%s outside of main function", pkgPath, sel.Sel.Name)
+				case "os.Exit":
+					pass.Reportf(node.Pos(), "found usage of %s.%s outside of main function", pkgPath, sel.Sel.Name)
 				}
 			}
 		}
