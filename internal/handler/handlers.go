@@ -6,6 +6,8 @@ package handler
 
 import (
 	"bytes"
+	"crypto/rand"
+	"crypto/rsa"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -32,6 +34,7 @@ func Router(
 	config *config.ServerConfig,
 	metricService *service.MetricsService,
 	auditLogger audit.AuditLogger,
+	privateKey *rsa.PrivateKey,
 ) chi.Router {
 
 	router := chi.NewRouter()
@@ -43,16 +46,16 @@ func Router(
 		UpdateHandlerWithParams(w, r, logger, config, metricService, auditLogger)
 	})
 	router.Post("/update", func(w http.ResponseWriter, r *http.Request) {
-		UpdateHandler(w, r, logger, config, metricService, auditLogger)
+		UpdateHandler(w, r, logger, config, metricService, auditLogger, privateKey)
 	})
 	router.Post("/updates", func(w http.ResponseWriter, r *http.Request) {
-		BatchUpdateHandler(w, r, logger, config, metricService, auditLogger)
+		BatchUpdateHandler(w, r, logger, config, metricService, auditLogger, privateKey)
 	})
 	router.Get("/value/{type}/{name}", func(w http.ResponseWriter, r *http.Request) {
 		GetHandler(w, r, metricService)
 	})
 	router.Post("/value", func(w http.ResponseWriter, r *http.Request) {
-		GetValue(w, r, metricService, logger, config)
+		GetValue(w, r, metricService, logger, config, privateKey)
 	})
 	router.Get("/ping", func(w http.ResponseWriter, r *http.Request) {
 		PingDatabaseHandler(w, r, metricService, logger)
@@ -71,6 +74,7 @@ func BatchUpdateHandler(
 	config *config.ServerConfig,
 	metricService *service.MetricsService,
 	auditLogger audit.AuditLogger,
+	privateKey *rsa.PrivateKey,
 ) {
 
 	// Read raw body
@@ -80,22 +84,25 @@ func BatchUpdateHandler(
 		return
 	}
 
+	// Handle encrypted message
+	decryptedMessage, err := rsa.DecryptPKCS1v15(rand.Reader, privateKey, body)
+
 	// Handle decompression
 	var processData []byte
 	if strings.Contains(r.Header.Get("Content-Encoding"), "gzip") {
-		processData, err = DecompressBody(body)
+		processData, err = DecompressBody(decryptedMessage)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
 	} else {
-		processData = body
+		processData = decryptedMessage
 	}
 
 	// Hash verification for request
 	if config.Key != "" {
 		headerHash := r.Header.Get("HashSHA256")
-		err = VerifyRequestHash(body, headerHash, config.Key)
+		err = VerifyRequestHash(decryptedMessage, headerHash, config.Key)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
@@ -165,6 +172,7 @@ func UpdateHandler(
 	config *config.ServerConfig,
 	metricService *service.MetricsService,
 	auditLogger audit.AuditLogger,
+	privateKey *rsa.PrivateKey,
 ) {
 
 	// Read raw body
@@ -174,22 +182,25 @@ func UpdateHandler(
 		return
 	}
 
+	// Handle encrypted message
+	decryptedMessage, err := rsa.DecryptPKCS1v15(rand.Reader, privateKey, body)
+
 	// Handle decompression
 	var processData []byte
 	if strings.Contains(r.Header.Get("Content-Encoding"), "gzip") {
-		processData, err = DecompressBody(body)
+		processData, err = DecompressBody(decryptedMessage)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
 	} else {
-		processData = body
+		processData = decryptedMessage
 	}
 
 	// Hash verification for request
 	if config.Key != "" {
 		headerHash := r.Header.Get("HashSHA256")
-		err = VerifyRequestHash(body, headerHash, config.Key)
+		err = VerifyRequestHash(decryptedMessage, headerHash, config.Key)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
@@ -297,7 +308,14 @@ func UpdateHandlerWithParams(
 }
 
 // GetValue retrieves a single metric value by its ID and type.
-func GetValue(w http.ResponseWriter, r *http.Request, metricService *service.MetricsService, logger *zap.SugaredLogger, config *config.ServerConfig) {
+func GetValue(
+	w http.ResponseWriter,
+	r *http.Request,
+	metricService *service.MetricsService,
+	logger *zap.SugaredLogger,
+	config *config.ServerConfig,
+	privateKey *rsa.PrivateKey,
+) {
 
 	var metrics models.MetricsDTO
 	var responseMetric models.MetricsDTO
@@ -309,22 +327,25 @@ func GetValue(w http.ResponseWriter, r *http.Request, metricService *service.Met
 		return
 	}
 
+	// Handle encrypted message
+	decryptedMessage, err := rsa.DecryptPKCS1v15(rand.Reader, privateKey, body)
+
 	// Handle decompression
 	var processData []byte
 	if strings.Contains(r.Header.Get("Content-Encoding"), "gzip") {
-		processData, err = DecompressBody(body)
+		processData, err = DecompressBody(decryptedMessage)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
 	} else {
-		processData = body
+		processData = decryptedMessage
 	}
 
 	// Hash verification for request
 	if config.Key != "" {
 		headerHash := r.Header.Get("HashSHA256")
-		err = VerifyRequestHash(body, headerHash, config.Key)
+		err = VerifyRequestHash(decryptedMessage, headerHash, config.Key)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return

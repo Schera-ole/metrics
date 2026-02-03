@@ -3,6 +3,8 @@ package main
 
 import (
 	"context"
+	"crypto/x509"
+	"encoding/pem"
 	"log"
 	"net/http"
 	_ "net/http/pprof"
@@ -46,6 +48,19 @@ func main() {
 	}
 	defer logger.Sync()
 	logSugar := logger.Sugar()
+	privateKeyBytes, err := os.ReadFile(serverConfig.CryptoKey)
+	if err != nil {
+		log.Fatal("Failed to read file with private key ", err)
+	}
+	privateKeyBlock, _ := pem.Decode(privateKeyBytes)
+	if privateKeyBlock == nil {
+		log.Fatal("Key is not found")
+	}
+	privateKey, err := x509.ParsePKCS1PrivateKey(privateKeyBlock.Bytes)
+
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	// Create repository
 	var storage repository.Repository
@@ -132,7 +147,7 @@ func main() {
 	logSugar.Fatal(
 		http.ListenAndServe(
 			serverConfig.Address,
-			handler.Router(logSugar, serverConfig, metricsService, auditLogger),
+			handler.Router(logSugar, serverConfig, metricsService, auditLogger, privateKey),
 		),
 	)
 }

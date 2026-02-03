@@ -9,13 +9,17 @@ import (
 	"bytes"
 	"compress/gzip"
 	"crypto/hmac"
+	"crypto/rand"
+	"crypto/rsa"
 	"crypto/sha256"
+	"crypto/x509"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"io"
 	"log"
-	"math/rand"
+	mathRand "math/rand"
 	"net/http"
 	"os"
 	"os/signal"
@@ -63,7 +67,7 @@ func collectMetrics(counter *Counter) []agent.Metric {
 		metrics = append(metrics, agent.Metric{Name: field.Name, Type: models.Gauge, Value: value.Interface()})
 	}
 	counter.Value += 1
-	metrics = append(metrics, agent.Metric{Name: "RandomValue", Type: models.Gauge, Value: rand.Float64()})
+	metrics = append(metrics, agent.Metric{Name: "RandomValue", Type: models.Gauge, Value: mathRand.Float64()})
 	metrics = append(metrics, agent.Metric{Name: "PollCount", Type: models.Counter, Value: counter.Value})
 
 	return metrics
@@ -115,7 +119,7 @@ func countHashString(compressedBody []byte, key string) string {
 }
 
 // prepareMetricsPayload prepares the metrics data for sending.
-func prepareMetricsPayload(metrics []agent.Metric, key string) ([]byte, string, error) {
+func prepareMetricsPayload(metrics []agent.Metric, key string, publicKey *rsa.PublicKey) ([]byte, string, error) {
 	// Prepare the data to send
 	var sendingData []models.MetricsDTO
 	for _, metric := range metrics {
@@ -154,9 +158,10 @@ func prepareMetricsPayload(metrics []agent.Metric, key string) ([]byte, string, 
 		return nil, "", fmt.Errorf("error closing gzip writer: %w", err)
 	}
 	compressedBytes := compressedData.Bytes()
+	encryptedMessage, err := rsa.EncryptPKCS1v15(rand.Reader, publicKey, compressedBytes)
 	var hash string
 	if key != "" {
-		hash = countHashString(compressedBytes, key)
+		hash = countHashString(encryptedMessage, key)
 	}
 	return compressedBytes, hash, nil
 }
@@ -255,11 +260,11 @@ func collectGopsutilMetrics() []agent.Metric {
 }
 
 // worker processes metric batches from the jobs channel.
-func worker(client *http.Client, url string, key string, jobs <-chan []agent.Metric) {
+func worker(client *http.Client, url string, key string, jobs <-chan []agent.Metric, publicKey *rsa.PublicKey) {
 
 	for job := range jobs {
 		// Prepare the metrics payload
-		payload, hash, err := prepareMetricsPayload(job, key)
+		payload, hash, err := prepareMetricsPayload(job, key, publicKey)
 		if err != nil {
 			log.Printf("Error preparing metrics payload: %v", err)
 			continue
@@ -284,6 +289,19 @@ func main() {
 	if err != nil {
 		log.Fatal("Failed to parse configuration: ", err)
 	}
+	publicKeyBytes, err := os.ReadFile(agentConfig.CryptoKey)
+	if err != nil {
+		log.Fatal("Failed to read file with public key ", err)
+	}
+	publicKeyBlock, _ := pem.Decode(publicKeyBytes)
+	if publicKeyBlock == nil {
+		log.Fatal("Key is not found")
+	}
+	publicKey, err := x509.ParsePKCS1PublicKey(publicKeyBlock.Bytes)
+
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	client := &http.Client{}
 
@@ -292,7 +310,7 @@ func main() {
 	jobs := make(chan []agent.Metric, 20)
 
 	for w := 1; w <= agentConfig.RateLimit; w++ {
-		go worker(client, url, agentConfig.Key, jobs)
+		go worker(client, url, agentConfig.Key, jobs, publicKey)
 	}
 	go func() {
 		for {

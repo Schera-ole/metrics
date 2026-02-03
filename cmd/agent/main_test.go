@@ -2,6 +2,8 @@ package main
 
 import (
 	"compress/gzip"
+	"crypto/rand"
+	"crypto/rsa"
 	"encoding/hex"
 	"encoding/json"
 	"io"
@@ -66,9 +68,14 @@ func TestSendMetric(t *testing.T) {
 	counter := &Counter{Value: 0}
 	metrics := collectMetrics(counter)
 
+	// Generate a test RSA key pair
+	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	require.NoError(t, err)
+	publicKey := &privateKey.PublicKey
+
 	client := &http.Client{}
 
-	payload, hash, err := prepareMetricsPayload(metrics, key)
+	payload, hash, err := prepareMetricsPayload(metrics, key, publicKey)
 	require.NoError(t, err)
 	err = sendWithRetry(client, payload, hash, server.URL+"/update", key)
 	require.NoError(t, err)
@@ -124,9 +131,14 @@ func TestSendMetricWithHash(t *testing.T) {
 	counter := &Counter{Value: 0}
 	metrics := collectMetrics(counter)
 
+	// Generate a test RSA key pair
+	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	require.NoError(t, err)
+	publicKey := &privateKey.PublicKey
+
 	client := &http.Client{}
 
-	payload, hash, err := prepareMetricsPayload(metrics, key)
+	payload, hash, err := prepareMetricsPayload(metrics, key, publicKey)
 	require.NoError(t, err)
 	err = sendWithRetry(client, payload, hash, server.URL+"/update", key)
 	require.NoError(t, err)

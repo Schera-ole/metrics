@@ -24,6 +24,9 @@ type AgentConfig struct {
 
 	// RateLimit is the maximum number of concurrent requests to the server.
 	RateLimit int
+
+	// CryptoKey is the path to the file with public key
+	CryptoKey string
 }
 
 // NewAgentConfig creates a new AgentConfig with default values and parses
@@ -36,12 +39,14 @@ func NewAgentConfig() (*AgentConfig, error) {
 		Address:      "localhost:8080",
 		Key:          "",
 		RateLimit:    5,
+		CryptoKey:    "./cmd/agent/public.pem",
 	}
 
 	pollInterval := flag.Int("p", 2, "The frequency of polling metrics from the package")
 	address := flag.String("a", "localhost:8080", "Address for sending metrics")
 	key := flag.String("k", "", "Key for hash")
 	rateLimit := flag.Int("l", 5, "Rate limit")
+	cryptoKey := flag.String("crypto-key", config.CryptoKey, "path to public key")
 	flag.Parse()
 	envIntVars := map[string]*int{
 		"POLL_INTERVAL": pollInterval,
@@ -49,8 +54,9 @@ func NewAgentConfig() (*AgentConfig, error) {
 	}
 
 	envStrVars := map[string]*string{
-		"ADDRESS": address,
-		"KEY":     key,
+		"ADDRESS":    address,
+		"KEY":        key,
+		"CRYPTO_KEY": cryptoKey,
 	}
 
 	for envVar, flag := range envIntVars {
@@ -72,6 +78,7 @@ func NewAgentConfig() (*AgentConfig, error) {
 	config.PollInterval = *pollInterval
 	config.RateLimit = *rateLimit
 	config.Key = *key
+	config.CryptoKey = *cryptoKey
 
 	return config, nil
 }

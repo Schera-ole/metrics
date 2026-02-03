@@ -36,6 +36,9 @@ type ServerConfig struct {
 
 	// AuditURL is the URL where audit logs are sent via HTTP POST.
 	AuditURL string
+
+	// CryptoKey is the path to the file with private key
+	CryptoKey string
 }
 
 // NewServerConfig creates a new ServerConfig with default values and parses
@@ -51,6 +54,7 @@ func NewServerConfig() (*ServerConfig, error) {
 		Key:             "",
 		AuditFile:       "",
 		AuditURL:        "",
+		CryptoKey:       "./cmd/server/private.pem",
 	}
 
 	address := flag.String("a", config.Address, "address")
@@ -61,6 +65,7 @@ func NewServerConfig() (*ServerConfig, error) {
 	key := flag.String("k", "", "Key for hash")
 	auditFile := flag.String("audit-file", config.AuditFile, "file for audit log")
 	auditURL := flag.String("audit-url", config.AuditURL, "url for audit log")
+	cryptoKey := flag.String("crypto-key", config.CryptoKey, "path to private key")
 	flag.Parse()
 
 	envVars := map[string]*string{
@@ -68,6 +73,7 @@ func NewServerConfig() (*ServerConfig, error) {
 		"FILE_STORAGE_PATH": fileStoragePath,
 		"DATABASE_DSN":      databaseDSN,
 		"KEY":               key,
+		"CRYPTO_KEY":        cryptoKey,
 	}
 
 	for envVar, flag := range envVars {
@@ -103,6 +109,7 @@ func NewServerConfig() (*ServerConfig, error) {
 	config.Restore = *restoreFlag
 	config.DatabaseDSN = *databaseDSN
 	config.Key = *key
+	config.CryptoKey = *cryptoKey
 
 	return config, nil
 }
