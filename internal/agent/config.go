@@ -2,6 +2,7 @@
 package agent
 
 import (
+	"encoding/json"
 	"flag"
 	"fmt"
 	"os"
@@ -29,10 +30,17 @@ type AgentConfig struct {
 	CryptoKey string
 }
 
+type ConfigFile struct {
+	Address      string `json:"address"`
+	RateLimit    int    `json:"rate_limit"`
+	PollInterval int    `json:"poll_interval"`
+	CryptoKey    string `json:"crypto_key"`
+}
+
 // NewAgentConfig creates a new AgentConfig with default values and parses
 // command-line flags and environment variables.
 func NewAgentConfig() (*AgentConfig, error) {
-
+	var configFromFile ConfigFile
 	config := &AgentConfig{
 		// ReportInterval: 10,
 		PollInterval: 2,
@@ -47,7 +55,25 @@ func NewAgentConfig() (*AgentConfig, error) {
 	key := flag.String("k", "", "Key for hash")
 	rateLimit := flag.Int("l", 5, "Rate limit")
 	cryptoKey := flag.String("crypto-key", config.CryptoKey, "path to public key")
+	configFile := flag.String("c", "", "path to config file")
 	flag.Parse()
+	if *configFile != "" {
+		f, err := os.Open(*configFile)
+		if err == nil {
+			defer f.Close()
+			decoder := json.NewDecoder(f)
+			err = decoder.Decode(&configFromFile)
+			if err != nil {
+				fmt.Println("Error during decode JSON:", err)
+			}
+			config.Address = configFromFile.Address
+			config.PollInterval = configFromFile.PollInterval
+			config.RateLimit = configFromFile.RateLimit
+			config.CryptoKey = configFromFile.CryptoKey
+		} else {
+			fmt.Println("Error during opening file:", err)
+		}
+	}
 	envIntVars := map[string]*int{
 		"POLL_INTERVAL": pollInterval,
 		"RATE_LIMIT":    rateLimit,

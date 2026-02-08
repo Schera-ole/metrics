@@ -3,13 +3,17 @@ package main
 
 import (
 	"context"
+	"crypto/rsa"
 	"crypto/x509"
 	"encoding/pem"
 	"log"
 	"net/http"
 	_ "net/http/pprof"
 	"os"
+	"os/signal"
 	"path/filepath"
+	"sync"
+	"syscall"
 	"time"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
@@ -56,15 +60,25 @@ func main() {
 	if privateKeyBlock == nil {
 		log.Fatal("Key is not found")
 	}
-	privateKey, err := x509.ParsePKCS1PrivateKey(privateKeyBlock.Bytes)
+	parsedPrivateKey, err := x509.ParsePKCS8PrivateKey(privateKeyBlock.Bytes)
 
 	if err != nil {
 		log.Fatal(err)
 	}
 
+	// Type assert to *rsa.PrivateKey
+	privateKey, ok := parsedPrivateKey.(*rsa.PrivateKey)
+	if !ok {
+		log.Fatal("Failed to type assert private key to *rsa.PrivateKey")
+	}
+
 	// Create repository
 	var storage repository.Repository
 	var metricsService *service.MetricsService
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
 	if serverConfig.DatabaseDSN == "" {
 		storage = repository.NewMemStorage()
 		metricsService = service.NewMetricsService(storage)
@@ -74,7 +88,7 @@ func main() {
 			logSugar.Errorf("error creating directory: %w", err)
 		}
 		if serverConfig.Restore {
-			restoreCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			restoreCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 			defer cancel()
 			metricsService.RestoreMetrics(restoreCtx, serverConfig.FileStoragePath, logSugar)
 		}
@@ -85,19 +99,25 @@ func main() {
 			defer ticker.Stop()
 
 			go func() {
-				for range ticker.C {
-					backupCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-					if err := metricsService.SaveMetrics(backupCtx, serverConfig.FileStoragePath); err != nil {
-						logSugar.Errorf("Error saving metrics: %v", err)
-					} else {
-						logSugar.Info("Metrics saved to file")
+				for {
+					select {
+					case <-ticker.C:
+						backupCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+						if err := metricsService.SaveMetrics(backupCtx, serverConfig.FileStoragePath); err != nil {
+							logSugar.Errorf("Error saving metrics: %v", err)
+						} else {
+							logSugar.Info("Metrics saved to file")
+						}
+						cancel()
+					case <-ctx.Done():
+						logSugar.Info("Backup goroutine shutting down")
+						return
 					}
-					cancel()
 				}
 			}()
 		}
 	} else {
-		migCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		migCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 		defer cancel()
 		err = migration.RunMigrations(migCtx, serverConfig.DatabaseDSN, logSugar)
 		if err != nil {
@@ -108,8 +128,14 @@ func main() {
 			logSugar.Fatalf("Error when open db connection: %v", err)
 		}
 		metricsService = service.NewMetricsService(storage)
-		defer storage.Close()
+		go func() {
+			<-ctx.Done()
+			if storage != nil {
+				storage.Close()
+			}
+		}()
 	}
+	var auditWg sync.WaitGroup
 	// Create event channel
 	var eventChan = make(chan models.AuditEvent, 100)
 	if serverConfig.AuditFile != "" || serverConfig.AuditURL != "" {
@@ -117,14 +143,26 @@ func main() {
 		if serverConfig.AuditFile != "" {
 			fileChan := make(chan models.AuditEvent, 50)
 			subs = append(subs, fileChan)
-			go audit.FileSubscriber(fileChan, *serverConfig)
+			auditWg.Add(1)
+			go func() {
+				defer auditWg.Done()
+				audit.FileSubscriber(ctx, fileChan, *serverConfig)
+			}()
 		}
 		if serverConfig.AuditURL != "" {
 			urlChan := make(chan models.AuditEvent, 50)
 			subs = append(subs, urlChan)
-			go audit.URLSubscriber(urlChan, *serverConfig)
+			auditWg.Add(1)
+			go func() {
+				defer auditWg.Done()
+				audit.URLSubscriber(ctx, urlChan, *serverConfig)
+			}()
 		}
-		go audit.Broadcaster(eventChan, subs...)
+		auditWg.Add(1)
+		go func() {
+			defer auditWg.Done()
+			audit.Broadcaster(ctx, eventChan, subs...)
+		}()
 	}
 
 	// Create audit logger
@@ -143,13 +181,35 @@ func main() {
 		"fileStoragePath", serverConfig.FileStoragePath,
 		"databaseDSN", serverConfig.DatabaseDSN,
 	)
+	// create server
+	router := handler.Router(logSugar, serverConfig, metricsService, auditLogger, privateKey)
+	srv := &http.Server{
+		Addr:    serverConfig.Address,
+		Handler: router,
+	}
+	// create chanels
+	idleConnsClosed := make(chan struct{})
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
+	go func() {
+		<-sigChan
+		log.Print("Shutting down server...")
 
-	logSugar.Fatal(
-		http.ListenAndServe(
-			serverConfig.Address,
-			handler.Router(logSugar, serverConfig, metricsService, auditLogger, privateKey),
-		),
-	)
+		shutdownCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		defer cancel()
+		if err := srv.Shutdown(shutdownCtx); err != nil {
+			log.Printf("HTTP server Shutdown: %v", err)
+		}
+		auditWg.Wait()
+		close(idleConnsClosed)
+	}()
+
+	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		log.Fatalf("Server failed to start: %v", err)
+	}
+
+	<-idleConnsClosed
+	cancel()
 }
 
 // noopAuditLogger is a no-op implementation of AuditLogger for when auditing is disabled.

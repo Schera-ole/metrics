@@ -4,7 +4,9 @@
 package config
 
 import (
+	"encoding/json"
 	"flag"
+	"fmt"
 	"os"
 	"strconv"
 )
@@ -41,10 +43,19 @@ type ServerConfig struct {
 	CryptoKey string
 }
 
+type ConfigFile struct {
+	Address         string `json:"address"`
+	Restore         bool   `json:"restore"`
+	StoreInterval   int    `json:"store_interval"`
+	FileStoragePath string `json:"store_file"`
+	DatabaseDSN     string `json:"database_dsn"`
+	CryptoKey       string `json:"crypto_key"`
+}
+
 // NewServerConfig creates a new ServerConfig with default values and parses
 // command-line flags and environment variables.
 func NewServerConfig() (*ServerConfig, error) {
-
+	var configFromFile ConfigFile
 	config := &ServerConfig{
 		Address:         "localhost:8080",
 		StoreInterval:   300,
@@ -66,8 +77,27 @@ func NewServerConfig() (*ServerConfig, error) {
 	auditFile := flag.String("audit-file", config.AuditFile, "file for audit log")
 	auditURL := flag.String("audit-url", config.AuditURL, "url for audit log")
 	cryptoKey := flag.String("crypto-key", config.CryptoKey, "path to private key")
+	configFile := flag.String("c", "", "path to config file")
 	flag.Parse()
-
+	if *configFile != "" {
+		f, err := os.Open(*configFile)
+		if err == nil {
+			defer f.Close()
+			decoder := json.NewDecoder(f)
+			err = decoder.Decode(&configFromFile)
+			if err != nil {
+				fmt.Println("Error during decode JSON:", err)
+			}
+			config.Address = configFromFile.Address
+			config.Restore = configFromFile.Restore
+			config.StoreInterval = configFromFile.StoreInterval
+			config.FileStoragePath = configFromFile.FileStoragePath
+			config.DatabaseDSN = configFromFile.DatabaseDSN
+			config.CryptoKey = configFromFile.CryptoKey
+		} else {
+			fmt.Println("Error during opening file:", err)
+		}
+	}
 	envVars := map[string]*string{
 		"ADDRESS":           address,
 		"FILE_STORAGE_PATH": fileStoragePath,

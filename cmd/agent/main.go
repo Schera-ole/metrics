@@ -8,6 +8,7 @@ package main
 import (
 	"bytes"
 	"compress/gzip"
+	"context"
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/rsa"
@@ -26,6 +27,7 @@ import (
 	"reflect"
 	"runtime"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -167,16 +169,29 @@ func prepareMetricsPayload(metrics []agent.Metric, key string, publicKey *rsa.Pu
 }
 
 // sendWithRetry sends a batch of metrics to the server with retry logic.
-func sendWithRetry(client *http.Client, payload []byte, hash string, url string, key string) error {
+func sendWithRetry(ctx context.Context, client *http.Client, payload []byte, hash string, url string, key string) error {
 	delays := []time.Duration{1 * time.Second, 3 * time.Second, 5 * time.Second}
 	var lastErr error
 
 	for attempt := 0; attempt < 4; attempt++ {
+		// Check if context was cancelled before each attempt
+		select {
+		case <-ctx.Done():
+			return ctx.Err() // Return cancellation error
+		default:
+		}
+
 		if attempt > 0 {
 			if attempt <= len(delays) {
 				delay := delays[attempt-1]
 				fmt.Printf("Retry attempt %d after %v delay\n", attempt, delay)
-				time.Sleep(delay)
+
+				// Wait with cancellation support
+				select {
+				case <-time.After(delay):
+				case <-ctx.Done():
+					return ctx.Err()
+				}
 			}
 		}
 
@@ -260,20 +275,29 @@ func collectGopsutilMetrics() []agent.Metric {
 }
 
 // worker processes metric batches from the jobs channel.
-func worker(client *http.Client, url string, key string, jobs <-chan []agent.Metric, publicKey *rsa.PublicKey) {
+func worker(ctx context.Context, client *http.Client, url string, key string, jobs <-chan []agent.Metric, publicKey *rsa.PublicKey, wg *sync.WaitGroup) {
+	defer wg.Done()
 
-	for job := range jobs {
-		// Prepare the metrics payload
-		payload, hash, err := prepareMetricsPayload(job, key, publicKey)
-		if err != nil {
-			log.Printf("Error preparing metrics payload: %v", err)
-			continue
-		}
+	for {
+		select {
+		case job, ok := <-jobs:
+			if !ok {
+				return // Channel closed
+			}
+			// Prepare the metrics payload
+			payload, hash, err := prepareMetricsPayload(job, key, publicKey)
+			if err != nil {
+				log.Printf("Error preparing metrics payload: %v", err)
+				continue
+			}
 
-		// Send with retry logic
-		err = sendWithRetry(client, payload, hash, url, key)
-		if err != nil {
-			log.Printf("Error sending metrics: %v", err)
+			// Send with retry logic
+			err = sendWithRetry(ctx, client, payload, hash, url, key)
+			if err != nil {
+				log.Printf("Error sending metrics: %v", err)
+			}
+		case <-ctx.Done():
+			return // Context cancelled
 		}
 	}
 }
@@ -297,10 +321,15 @@ func main() {
 	if publicKeyBlock == nil {
 		log.Fatal("Key is not found")
 	}
-	publicKey, err := x509.ParsePKCS1PublicKey(publicKeyBlock.Bytes)
-
+	publicKey, err := x509.ParsePKIXPublicKey(publicKeyBlock.Bytes)
 	if err != nil {
 		log.Fatal(err)
+	}
+
+	// Type assert publicKey to *rsa.PublicKey
+	rsaPublicKey, ok := publicKey.(*rsa.PublicKey)
+	if !ok {
+		log.Fatal("Public key is not an RSA public key")
 	}
 
 	client := &http.Client{}
@@ -309,26 +338,63 @@ func main() {
 	counter := &Counter{Value: 0}
 	jobs := make(chan []agent.Metric, 20)
 
+	// Create context with cancel for graceful shutdown
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Create WaitGroup to wait for all workers to finish
+	var wg sync.WaitGroup
+
 	for w := 1; w <= agentConfig.RateLimit; w++ {
-		go worker(client, url, agentConfig.Key, jobs, publicKey)
+		wg.Add(1)
+		go worker(ctx, client, url, agentConfig.Key, jobs, rsaPublicKey, &wg)
 	}
+
+	// Goroutine for collecting runtime metrics
 	go func() {
+		ticker := time.NewTicker(time.Duration(agentConfig.PollInterval) * time.Second)
+		defer ticker.Stop()
+
 		for {
-			jobs <- collectMetrics(counter)
-			time.Sleep(time.Duration(agentConfig.PollInterval) * time.Second)
-		}
-	}()
-	go func() {
-		for {
-			jobs <- collectGopsutilMetrics()
-			time.Sleep(time.Duration(agentConfig.PollInterval) * time.Second)
+			select {
+			case <-ticker.C:
+				jobs <- collectMetrics(counter)
+			case <-ctx.Done():
+				return
+			}
 		}
 	}()
 
+	// Goroutine for collecting system metrics
+	go func() {
+		ticker := time.NewTicker(time.Duration(agentConfig.PollInterval) * time.Second)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-ticker.C:
+				jobs <- collectGopsutilMetrics()
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+
+	// Wait for interrupt signal
 	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
 	// Block until signal received
 	<-sigChan
 	log.Println("Shutting down...")
+
+	// Cancel context to signal all goroutines to stop
+	cancel()
+
+	// Close jobs channel
 	close(jobs)
+
+	// Wait for all workers to finish
+	wg.Wait()
+
+	log.Println("Shutdown complete")
 }

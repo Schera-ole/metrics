@@ -2,6 +2,7 @@ package main
 
 import (
 	"compress/gzip"
+	"context"
 	"crypto/rand"
 	"crypto/rsa"
 	"encoding/hex"
@@ -75,9 +76,10 @@ func TestSendMetric(t *testing.T) {
 
 	client := &http.Client{}
 
+	ctx := context.Background()
 	payload, hash, err := prepareMetricsPayload(metrics, key, publicKey)
 	require.NoError(t, err)
-	err = sendWithRetry(client, payload, hash, server.URL+"/update", key)
+	err = sendWithRetry(ctx, client, payload, hash, server.URL+"/update", key)
 	require.NoError(t, err)
 
 	// We should receive exactly one request with all metrics
@@ -138,9 +140,10 @@ func TestSendMetricWithHash(t *testing.T) {
 
 	client := &http.Client{}
 
+	ctx := context.Background()
 	payload, hash, err := prepareMetricsPayload(metrics, key, publicKey)
 	require.NoError(t, err)
-	err = sendWithRetry(client, payload, hash, server.URL+"/update", key)
+	err = sendWithRetry(ctx, client, payload, hash, server.URL+"/update", key)
 	require.NoError(t, err)
 
 	// We should receive exactly one request with all metrics
