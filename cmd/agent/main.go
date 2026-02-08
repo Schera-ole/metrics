@@ -180,7 +180,7 @@ func sendWithRetry(ctx context.Context, client *http.Client, payload []byte, has
 		// Check if context was cancelled before each attempt
 		select {
 		case <-ctx.Done():
-			return ctx.Err() // Return cancellation error
+			return ctx.Err()
 		default:
 		}
 
@@ -189,7 +189,6 @@ func sendWithRetry(ctx context.Context, client *http.Client, payload []byte, has
 				delay := delays[attempt-1]
 				fmt.Printf("Retry attempt %d after %v delay\n", attempt, delay)
 
-				// Wait with cancellation support
 				select {
 				case <-time.After(delay):
 				case <-ctx.Done():
@@ -300,7 +299,7 @@ func worker(ctx context.Context, client *http.Client, url string, key string, jo
 				log.Printf("Error sending metrics: %v", err)
 			}
 		case <-ctx.Done():
-			return // Context cancelled
+			return
 		}
 	}
 }
