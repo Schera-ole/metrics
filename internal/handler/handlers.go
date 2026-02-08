@@ -86,6 +86,10 @@ func BatchUpdateHandler(
 
 	// Handle encrypted message
 	decryptedMessage, err := rsa.DecryptPKCS1v15(rand.Reader, privateKey, body)
+	if err != nil {
+		http.Error(w, "Failed to decrypt message: "+err.Error(), http.StatusBadRequest)
+		return
+	}
 
 	// Handle decompression
 	var processData []byte
@@ -184,6 +188,10 @@ func UpdateHandler(
 
 	// Handle encrypted message
 	decryptedMessage, err := rsa.DecryptPKCS1v15(rand.Reader, privateKey, body)
+	if err != nil {
+		http.Error(w, "Failed to decrypt message: "+err.Error(), http.StatusBadRequest)
+		return
+	}
 
 	// Handle decompression
 	var processData []byte
@@ -329,6 +337,10 @@ func GetValue(
 
 	// Handle encrypted message
 	decryptedMessage, err := rsa.DecryptPKCS1v15(rand.Reader, privateKey, body)
+	if err != nil {
+		http.Error(w, "Failed to decrypt message: "+err.Error(), http.StatusBadRequest)
+		return
+	}
 
 	// Handle decompression
 	var processData []byte

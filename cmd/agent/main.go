@@ -161,6 +161,9 @@ func prepareMetricsPayload(metrics []agent.Metric, key string, publicKey *rsa.Pu
 	}
 	compressedBytes := compressedData.Bytes()
 	encryptedMessage, err := rsa.EncryptPKCS1v15(rand.Reader, publicKey, compressedBytes)
+	if err != nil {
+		return nil, "", fmt.Errorf("error encrypting message: %w", err)
+	}
 	var hash string
 	if key != "" {
 		hash = countHashString(encryptedMessage, key)
