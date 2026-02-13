@@ -6,6 +6,7 @@ import (
 	"crypto/rsa"
 	"crypto/x509"
 	"encoding/pem"
+	"fmt"
 	"log"
 	"net/http"
 	_ "net/http/pprof"
@@ -34,42 +35,52 @@ var (
 	buildCommit  string = "N/A"
 )
 
-// main initializes and starts the metrics server.
-func main() {
-	// Print build information
-	log.Printf("Build version: %s\n", buildVersion)
-	log.Printf("Build date: %s\n", buildDate)
-	log.Printf("Build commit: %s\n", buildCommit)
-
-	serverConfig, err := config.NewServerConfig()
+// loadPrivateKey loads and parses an RSA private key from a file.
+func loadPrivateKey(keyPath string) (*rsa.PrivateKey, error) {
+	privateKeyBytes, err := os.ReadFile(keyPath)
 	if err != nil {
-		log.Fatal("Failed to parse configuration: ", err)
+		return nil, fmt.Errorf("failed to read file with private key: %w", err)
+	}
+	privateKeyBlock, _ := pem.Decode(privateKeyBytes)
+	if privateKeyBlock == nil {
+		return nil, fmt.Errorf("key is not found")
+	}
+	parsedPrivateKey, err := x509.ParsePKCS8PrivateKey(privateKeyBlock.Bytes)
+	if err != nil {
+		return nil, err
 	}
 
+	// Type assert to *rsa.PrivateKey
+	privateKey, ok := parsedPrivateKey.(*rsa.PrivateKey)
+	if !ok {
+		return nil, fmt.Errorf("failed to type assert private key to *rsa.PrivateKey")
+	}
+
+	return privateKey, nil
+}
+
+// main initializes and starts the metrics server.
+func main() {
 	logger, err := zap.NewDevelopment()
 	if err != nil {
 		log.Fatal("Failed to initialize zap logger: ", err)
 	}
 	defer logger.Sync()
 	logSugar := logger.Sugar()
-	privateKeyBytes, err := os.ReadFile(serverConfig.CryptoKey)
-	if err != nil {
-		log.Fatal("Failed to read file with private key ", err)
-	}
-	privateKeyBlock, _ := pem.Decode(privateKeyBytes)
-	if privateKeyBlock == nil {
-		log.Fatal("Key is not found")
-	}
-	parsedPrivateKey, err := x509.ParsePKCS8PrivateKey(privateKeyBlock.Bytes)
 
+	// Print build information
+	logSugar.Infof("Build version: %s", buildVersion)
+	logSugar.Infof("Build date: %s", buildDate)
+	logSugar.Infof("Build commit: %s", buildCommit)
+
+	serverConfig, err := config.NewServerConfig()
 	if err != nil {
-		log.Fatal(err)
+		logSugar.Fatal("Failed to parse configuration: ", err)
 	}
 
-	// Type assert to *rsa.PrivateKey
-	privateKey, ok := parsedPrivateKey.(*rsa.PrivateKey)
-	if !ok {
-		log.Fatal("Failed to type assert private key to *rsa.PrivateKey")
+	privateKey, err := loadPrivateKey(serverConfig.CryptoKey)
+	if err != nil {
+		logSugar.Fatal("Failed to load private key: ", err)
 	}
 
 	// Create repository
@@ -187,28 +198,62 @@ func main() {
 		Addr:    serverConfig.Address,
 		Handler: router,
 	}
-	// create chanels
-	idleConnsClosed := make(chan struct{})
+	// create channels
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
-	go func() {
-		<-sigChan
-		log.Print("Shutting down server...")
 
-		shutdownCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-		defer cancel()
-		if err := srv.Shutdown(shutdownCtx); err != nil {
-			log.Printf("HTTP server Shutdown: %v", err)
+	// Start server in a goroutine
+	serverErrChan := make(chan error, 1)
+	go func() {
+		logSugar.Infof("Starting server on %s", serverConfig.Address)
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			serverErrChan <- err
 		}
-		auditWg.Wait()
-		close(idleConnsClosed)
+		close(serverErrChan)
 	}()
 
-	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-		log.Fatalf("Server failed to start: %v", err)
+	// Wait for interrupt signal or server error
+	select {
+	case err := <-serverErrChan:
+		if err != nil {
+			logSugar.Fatalf("Server failed to start: %v", err)
+		}
+	case <-sigChan:
+		logSugar.Info("Shutting down server...")
+
+		// Create shutdown context with timeout (30 seconds for graceful shutdown)
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+
+		// Channel to signal completion of shutdown
+		done := make(chan struct{})
+
+		go func() {
+			// Shutdown the server gracefully
+			if err := srv.Shutdown(shutdownCtx); err != nil {
+				logSugar.Infof("HTTP server Shutdown: %v", err)
+				if err := srv.Close(); err != nil {
+					logSugar.Infof("HTTP server Close: %v", err)
+				}
+			}
+			close(done)
+		}()
+
+		// Wait and timeout (1 minute)
+		select {
+		case <-done:
+			// Graceful shutdown completed
+		case <-time.After(1 * time.Minute):
+			logSugar.Info("Graceful shutdown timed out after 1 minute, forcing exit")
+			// Force close
+			if err := srv.Close(); err != nil {
+				logSugar.Infof("HTTP server Close: %v", err)
+			}
+		}
+
+		auditWg.Wait()
 	}
 
-	<-idleConnsClosed
 	cancel()
 }
 

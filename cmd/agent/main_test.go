@@ -14,6 +14,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
 
 	models "github.com/Schera-ole/metrics/internal/model"
 )
@@ -76,10 +77,16 @@ func TestSendMetric(t *testing.T) {
 
 	client := &http.Client{}
 
+	// Create a logger for testing
+	logger, err := zap.NewDevelopment()
+	require.NoError(t, err)
+	logSugar := logger.Sugar()
+	defer logger.Sync()
+
 	ctx := context.Background()
 	payload, hash, err := prepareMetricsPayload(metrics, key, publicKey)
 	require.NoError(t, err)
-	err = sendWithRetry(ctx, client, payload, hash, server.URL+"/update", key)
+	err = sendWithRetry(ctx, client, payload, hash, server.URL+"/update", key, logSugar)
 	require.NoError(t, err)
 
 	// We should receive exactly one request with all metrics
@@ -140,10 +147,16 @@ func TestSendMetricWithHash(t *testing.T) {
 
 	client := &http.Client{}
 
+	// Create a logger for testing
+	logger, err := zap.NewDevelopment()
+	require.NoError(t, err)
+	logSugar := logger.Sugar()
+	defer logger.Sync()
+
 	ctx := context.Background()
 	payload, hash, err := prepareMetricsPayload(metrics, key, publicKey)
 	require.NoError(t, err)
-	err = sendWithRetry(ctx, client, payload, hash, server.URL+"/update", key)
+	err = sendWithRetry(ctx, client, payload, hash, server.URL+"/update", key, logSugar)
 	require.NoError(t, err)
 
 	// We should receive exactly one request with all metrics

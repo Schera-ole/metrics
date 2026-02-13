@@ -10,12 +10,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"net/http"
 	"os"
 	"time"
 
 	"github.com/Schera-ole/metrics/internal/config"
 	models "github.com/Schera-ole/metrics/internal/model"
+	"github.com/hashicorp/go-retryablehttp"
 )
 
 // AuditLogger is an interface for logging audit events.
@@ -127,10 +127,10 @@ func URLSubscriber(ctx context.Context, events <-chan models.AuditEvent, config 
 				continue
 			}
 
-			// Create HTTP client with timeout
-			client := &http.Client{
-				Timeout: 10 * time.Second,
-			}
+			// Create retryable HTTP client with default settings
+			retryClient := retryablehttp.NewClient()
+			retryClient.HTTPClient.Timeout = 10 * time.Second
+			client := retryClient.StandardClient() // *http.Client with retry support
 
 			resp, err := client.Post(config.AuditURL, "application/json", bytes.NewBuffer(data))
 			if err != nil {

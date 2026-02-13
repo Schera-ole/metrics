@@ -35,6 +35,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/shirou/gopsutil/v4/cpu"
 	"github.com/shirou/gopsutil/v4/mem"
+	"go.uber.org/zap"
 
 	"github.com/Schera-ole/metrics/internal/agent"
 	models "github.com/Schera-ole/metrics/internal/model"
@@ -172,7 +173,7 @@ func prepareMetricsPayload(metrics []agent.Metric, key string, publicKey *rsa.Pu
 }
 
 // sendWithRetry sends a batch of metrics to the server with retry logic.
-func sendWithRetry(ctx context.Context, client *http.Client, payload []byte, hash string, url string, key string) error {
+func sendWithRetry(ctx context.Context, client *http.Client, payload []byte, hash string, url string, key string, logSugar *zap.SugaredLogger) error {
 	delays := []time.Duration{1 * time.Second, 3 * time.Second, 5 * time.Second}
 	var lastErr error
 
@@ -187,7 +188,7 @@ func sendWithRetry(ctx context.Context, client *http.Client, payload []byte, has
 		if attempt > 0 {
 			if attempt <= len(delays) {
 				delay := delays[attempt-1]
-				fmt.Printf("Retry attempt %d after %v delay\n", attempt, delay)
+				logSugar.Infof("Retry attempt %d after %v delay\n", attempt, delay)
 
 				select {
 				case <-time.After(delay):
@@ -216,7 +217,7 @@ func sendWithRetry(ctx context.Context, client *http.Client, payload []byte, has
 			lastErr = fmt.Errorf("error sending request for %s: %w", url, err)
 			// Check if the error is retryable
 			if isRetryableError(err) {
-				fmt.Printf("Retryable error occurred: %v\n", err)
+				logSugar.Infof("Retryable error occurred: %v", err)
 				continue
 			} else {
 				return lastErr
@@ -232,13 +233,13 @@ func sendWithRetry(ctx context.Context, client *http.Client, payload []byte, has
 
 		// Check response status code and decide retry or not
 		if response.StatusCode >= 200 && response.StatusCode < 300 {
-			fmt.Printf("Response: %s\n", string(body))
+			logSugar.Infof("Response: %s", string(body))
 			return nil
 		} else {
 			lastErr = fmt.Errorf("server returned error status %d: %s", response.StatusCode, string(body))
 			// Think, that for 5xx errors, we should retry request
 			if response.StatusCode >= 500 && response.StatusCode < 600 {
-				fmt.Printf("Server error (5xx), will retry: %v\n", lastErr)
+				logSugar.Infof("Server error (5xx), will retry: %v", lastErr)
 				continue
 			} else {
 				// For other errors, don't retry
@@ -252,13 +253,13 @@ func sendWithRetry(ctx context.Context, client *http.Client, payload []byte, has
 }
 
 // collectGopsutilMetrics gathers system metrics using gopsutil.
-func collectGopsutilMetrics() []agent.Metric {
+func collectGopsutilMetrics(logSugar *zap.SugaredLogger) []agent.Metric {
 
 	var metrics []agent.Metric
 	// Get memory metrics
 	memory, err := mem.VirtualMemory()
 	if err != nil {
-		log.Printf("error getting memory stats %v", err)
+		logSugar.Error("Error getting memory stats", zap.Error(err))
 		return nil
 	}
 	metrics = append(metrics, agent.Metric{Name: "TotalMemory", Type: models.Gauge, Value: memory.Total})
@@ -267,7 +268,7 @@ func collectGopsutilMetrics() []agent.Metric {
 	// Get CPU metrics
 	cpuPercents, err := cpu.Percent(time.Second, true)
 	if err != nil {
-		log.Printf("error getting cpu info %v", err)
+		logSugar.Error("Error getting CPU info", zap.Error(err))
 		return nil
 	}
 	for i, percent := range cpuPercents {
@@ -277,7 +278,7 @@ func collectGopsutilMetrics() []agent.Metric {
 }
 
 // worker processes metric batches from the jobs channel.
-func worker(ctx context.Context, client *http.Client, url string, key string, jobs <-chan []agent.Metric, publicKey *rsa.PublicKey, wg *sync.WaitGroup) {
+func worker(ctx context.Context, client *http.Client, url string, key string, jobs <-chan []agent.Metric, publicKey *rsa.PublicKey, wg *sync.WaitGroup, logSugar *zap.SugaredLogger) {
 	defer wg.Done()
 
 	for {
@@ -289,14 +290,14 @@ func worker(ctx context.Context, client *http.Client, url string, key string, jo
 			// Prepare the metrics payload
 			payload, hash, err := prepareMetricsPayload(job, key, publicKey)
 			if err != nil {
-				log.Printf("Error preparing metrics payload: %v", err)
+				logSugar.Error("Error preparing metrics payload", zap.Error(err))
 				continue
 			}
 
 			// Send with retry logic
-			err = sendWithRetry(ctx, client, payload, hash, url, key)
+			err = sendWithRetry(ctx, client, payload, hash, url, key, logSugar)
 			if err != nil {
-				log.Printf("Error sending metrics: %v", err)
+				logSugar.Error("Error sending metrics", zap.Error(err))
 			}
 		case <-ctx.Done():
 			return
@@ -304,34 +305,50 @@ func worker(ctx context.Context, client *http.Client, url string, key string, jo
 	}
 }
 
-// main initializes and starts the metrics collection agent.
-func main() {
-	// Print build information
-	log.Printf("Build version: %s\n", buildVersion)
-	log.Printf("Build date: %s\n", buildDate)
-	log.Printf("Build commit: %s\n", buildCommit)
-
-	agentConfig, err := agent.NewAgentConfig()
+func loadPublicKey(pathToFile string) (*rsa.PublicKey, error) {
+	publicKeyBytes, err := os.ReadFile(pathToFile)
 	if err != nil {
-		log.Fatal("Failed to parse configuration: ", err)
-	}
-	publicKeyBytes, err := os.ReadFile(agentConfig.CryptoKey)
-	if err != nil {
-		log.Fatal("Failed to read file with public key ", err)
+		return nil, fmt.Errorf("failed to read file with public key: %w", err)
 	}
 	publicKeyBlock, _ := pem.Decode(publicKeyBytes)
 	if publicKeyBlock == nil {
-		log.Fatal("Key is not found")
+		return nil, fmt.Errorf("key is not found")
 	}
 	publicKey, err := x509.ParsePKIXPublicKey(publicKeyBlock.Bytes)
 	if err != nil {
-		log.Fatal(err)
+		return nil, fmt.Errorf("failed to parse public key: %w", err)
 	}
 
 	// Type assert publicKey to *rsa.PublicKey
 	rsaPublicKey, ok := publicKey.(*rsa.PublicKey)
 	if !ok {
-		log.Fatal("Public key is not an RSA public key")
+		return nil, fmt.Errorf("public key is not an RSA public key")
+	}
+	return rsaPublicKey, nil
+}
+
+// main initializes and starts the metrics collection agent.
+func main() {
+	agentConfig, err := agent.NewAgentConfig()
+	if err != nil {
+		log.Fatal("Failed to parse configuration: ", err)
+	}
+
+	logger, err := zap.NewDevelopment()
+	if err != nil {
+		log.Fatal("Failed to initialize zap logger: ", err)
+	}
+	defer logger.Sync()
+	logSugar := logger.Sugar()
+
+	// Print build information
+	logSugar.Infof("Build version: %s", buildVersion)
+	logSugar.Infof("Build date: %s", buildDate)
+	logSugar.Infof("Build commit: %s", buildCommit)
+
+	rsaPublicKey, err := loadPublicKey(agentConfig.CryptoKey)
+	if err != nil {
+		logger.Fatal("Failed to get public key", zap.Error(err))
 	}
 
 	client := &http.Client{}
@@ -340,16 +357,16 @@ func main() {
 	counter := &Counter{Value: 0}
 	jobs := make(chan []agent.Metric, 20)
 
-	// Create context with cancel for graceful shutdown
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	// Create context with cancel for graceful shutdown using NotifyContext
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
+	defer stop()
 
 	// Create WaitGroup to wait for all workers to finish
 	var wg sync.WaitGroup
 
 	for w := 1; w <= agentConfig.RateLimit; w++ {
 		wg.Add(1)
-		go worker(ctx, client, url, agentConfig.Key, jobs, rsaPublicKey, &wg)
+		go worker(ctx, client, url, agentConfig.Key, jobs, rsaPublicKey, &wg, logSugar)
 	}
 
 	// Goroutine for collecting runtime metrics
@@ -375,7 +392,7 @@ func main() {
 		for {
 			select {
 			case <-ticker.C:
-				jobs <- collectGopsutilMetrics()
+				jobs <- collectGopsutilMetrics(logSugar)
 			case <-ctx.Done():
 				return
 			}
@@ -383,14 +400,8 @@ func main() {
 	}()
 
 	// Wait for interrupt signal
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
-	// Block until signal received
-	<-sigChan
-	log.Println("Shutting down...")
-
-	// Cancel context to signal all goroutines to stop
-	cancel()
+	<-ctx.Done()
+	logger.Info("Shutting down...")
 
 	// Close jobs channel
 	close(jobs)
@@ -398,5 +409,5 @@ func main() {
 	// Wait for all workers to finish
 	wg.Wait()
 
-	log.Println("Shutdown complete")
+	logger.Info("Shutdown complete")
 }
