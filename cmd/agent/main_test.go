@@ -2,6 +2,9 @@ package main
 
 import (
 	"compress/gzip"
+	"context"
+	"crypto/rand"
+	"crypto/rsa"
 	"encoding/hex"
 	"encoding/json"
 	"io"
@@ -11,6 +14,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
 
 	models "github.com/Schera-ole/metrics/internal/model"
 )
@@ -66,11 +70,23 @@ func TestSendMetric(t *testing.T) {
 	counter := &Counter{Value: 0}
 	metrics := collectMetrics(counter)
 
+	// Generate a test RSA key pair
+	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	require.NoError(t, err)
+	publicKey := &privateKey.PublicKey
+
 	client := &http.Client{}
 
-	payload, hash, err := prepareMetricsPayload(metrics, key)
+	// Create a logger for testing
+	logger, err := zap.NewDevelopment()
 	require.NoError(t, err)
-	err = sendWithRetry(client, payload, hash, server.URL+"/update", key)
+	logSugar := logger.Sugar()
+	defer logger.Sync()
+
+	ctx := context.Background()
+	payload, hash, err := prepareMetricsPayload(metrics, key, publicKey)
+	require.NoError(t, err)
+	err = sendWithRetry(ctx, client, payload, hash, server.URL+"/update", key, logSugar)
 	require.NoError(t, err)
 
 	// We should receive exactly one request with all metrics
@@ -124,11 +140,23 @@ func TestSendMetricWithHash(t *testing.T) {
 	counter := &Counter{Value: 0}
 	metrics := collectMetrics(counter)
 
+	// Generate a test RSA key pair
+	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	require.NoError(t, err)
+	publicKey := &privateKey.PublicKey
+
 	client := &http.Client{}
 
-	payload, hash, err := prepareMetricsPayload(metrics, key)
+	// Create a logger for testing
+	logger, err := zap.NewDevelopment()
 	require.NoError(t, err)
-	err = sendWithRetry(client, payload, hash, server.URL+"/update", key)
+	logSugar := logger.Sugar()
+	defer logger.Sync()
+
+	ctx := context.Background()
+	payload, hash, err := prepareMetricsPayload(metrics, key, publicKey)
+	require.NoError(t, err)
+	err = sendWithRetry(ctx, client, payload, hash, server.URL+"/update", key, logSugar)
 	require.NoError(t, err)
 
 	// We should receive exactly one request with all metrics

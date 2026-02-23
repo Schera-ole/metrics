@@ -2,7 +2,10 @@ package handler
 
 import (
 	"bytes"
+	"compress/gzip"
 	"context"
+	"crypto/rand"
+	"crypto/rsa"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -22,7 +25,7 @@ import (
 )
 
 // testSetup creates common test dependencies
-func testSetup(t *testing.T) (*service.MetricsService, *config.ServerConfig, *zap.SugaredLogger) {
+func testSetup(t *testing.T) (*service.MetricsService, *config.ServerConfig, *zap.SugaredLogger, *rsa.PrivateKey, *rsa.PublicKey) {
 	storage := repository.NewMemStorage()
 	logger, _ := zap.NewDevelopment()
 	t.Cleanup(func() { logger.Sync() })
@@ -37,22 +40,47 @@ func testSetup(t *testing.T) (*service.MetricsService, *config.ServerConfig, *za
 		Restore:         false,
 	}
 
-	return metricService, testConfig, logSugar
+	// Create a dummy RSA private key for testing
+	privateKey, _ := rsa.GenerateKey(rand.Reader, 2048)
+	publicKey := &privateKey.PublicKey
+
+	return metricService, testConfig, logSugar, privateKey, publicKey
 }
 
 // testRequest performs an HTTP request to the test server
-func testRequest(t *testing.T, ts *httptest.Server, method, path string, body io.Reader) *http.Response {
+func testRequest(t *testing.T, ts *httptest.Server, method, path string, body io.Reader, headers map[string]string) *http.Response {
 	req, err := http.NewRequest(method, ts.URL+path, body)
 	require.NoError(t, err)
 
-	if body != nil {
-		req.Header.Set("Content-Type", "application/json")
+	// Set default headers
+	req.Header.Set("Content-Type", "application/json")
+
+	// Set additional headers if provided
+	for key, value := range headers {
+		req.Header.Set(key, value)
 	}
 
 	resp, err := ts.Client().Do(req)
 	require.NoError(t, err)
 
 	return resp
+}
+
+// encryptAndCompress encrypts and compresses data for testing
+func encryptAndCompress(t *testing.T, data []byte, publicKey *rsa.PublicKey) []byte {
+	// Compress the data
+	var compressedData bytes.Buffer
+	gzipWriter := gzip.NewWriter(&compressedData)
+	_, err := gzipWriter.Write(data)
+	require.NoError(t, err)
+	err = gzipWriter.Close()
+	require.NoError(t, err)
+
+	// Encrypt the compressed data
+	encryptedData, err := rsa.EncryptPKCS1v15(rand.Reader, publicKey, compressedData.Bytes())
+	require.NoError(t, err)
+
+	return encryptedData
 }
 
 type MockedStorage struct {
@@ -120,9 +148,9 @@ func (m *mockAuditLogger) Log(metrics []string, ipAddress string) {
 }
 
 func TestUpdateHandler(t *testing.T) {
-	metricService, testConfig, logSugar := testSetup(t)
+	metricService, testConfig, logSugar, privateKey, publicKey := testSetup(t)
 	mockAudit := &mockAuditLogger{}
-	ts := httptest.NewServer(Router(logSugar, testConfig, metricService, mockAudit))
+	ts := httptest.NewServer(Router(logSugar, testConfig, metricService, mockAudit, privateKey))
 	defer ts.Close()
 
 	tests := []struct {
@@ -179,10 +207,17 @@ func TestUpdateHandler(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			var body io.Reader
+			var headers map[string]string
 			if tt.body != "" {
-				body = bytes.NewBufferString(tt.body)
+				// Encrypt and compress the body
+				jsonData := []byte(tt.body)
+				encryptedData := encryptAndCompress(t, jsonData, publicKey)
+				body = bytes.NewBuffer(encryptedData)
+				headers = map[string]string{
+					"Content-Encoding": "gzip",
+				}
 			}
-			r := testRequest(t, ts, tt.method, tt.endpoint, body)
+			r := testRequest(t, ts, tt.method, tt.endpoint, body, headers)
 			defer r.Body.Close()
 			assert.Equal(t, tt.statusCode, r.StatusCode)
 		})
@@ -190,17 +225,17 @@ func TestUpdateHandler(t *testing.T) {
 }
 
 func TestGetHandler(t *testing.T) {
-	metricService, testConfig, logSugar := testSetup(t)
+	metricService, testConfig, logSugar, privateKey, _ := testSetup(t)
 	mockAudit := &mockAuditLogger{}
 
 	// Set a gauge metric
 	err := metricService.SetMetric(context.Background(), "TestGauge", 42.5, models.Gauge)
 	require.NoError(t, err)
 
-	ts := httptest.NewServer(Router(logSugar, testConfig, metricService, mockAudit))
+	ts := httptest.NewServer(Router(logSugar, testConfig, metricService, mockAudit, privateKey))
 	defer ts.Close()
 
-	r := testRequest(t, ts, http.MethodGet, "/value/gauge/TestGauge", nil)
+	r := testRequest(t, ts, http.MethodGet, "/value/gauge/TestGauge", nil, nil)
 	defer r.Body.Close()
 	assert.Equal(t, http.StatusOK, r.StatusCode)
 	bodyBytes, _ := io.ReadAll(r.Body)
@@ -208,18 +243,24 @@ func TestGetHandler(t *testing.T) {
 }
 
 func TestGetValueHandler(t *testing.T) {
-	metricService, testConfig, logSugar := testSetup(t)
+	metricService, testConfig, logSugar, privateKey, publicKey := testSetup(t)
 	mockAudit := &mockAuditLogger{}
 
 	// Set a counter metric
 	err := metricService.SetMetric(context.Background(), "TestCounter", int64(10), models.Counter)
 	require.NoError(t, err)
 
-	ts := httptest.NewServer(Router(logSugar, testConfig, metricService, mockAudit))
+	ts := httptest.NewServer(Router(logSugar, testConfig, metricService, mockAudit, privateKey))
 	defer ts.Close()
 
 	requestBody := `{"id":"TestCounter","type":"counter"}`
-	r := testRequest(t, ts, http.MethodPost, "/value", bytes.NewBufferString(requestBody))
+	// Encrypt and compress the body
+	jsonData := []byte(requestBody)
+	encryptedData := encryptAndCompress(t, jsonData, publicKey)
+	headers := map[string]string{
+		"Content-Encoding": "gzip",
+	}
+	r := testRequest(t, ts, http.MethodPost, "/value", bytes.NewBuffer(encryptedData), headers)
 	defer r.Body.Close()
 	assert.Equal(t, http.StatusOK, r.StatusCode)
 	var resp models.MetricsDTO
@@ -229,22 +270,25 @@ func TestGetValueHandler(t *testing.T) {
 
 	// Test getting a non-existent metric
 	requestBody2 := `{"id":"NonExistent","type":"counter"}`
-	r2 := testRequest(t, ts, http.MethodPost, "/value", bytes.NewBufferString(requestBody2))
+	// Encrypt and compress the body
+	jsonData2 := []byte(requestBody2)
+	encryptedData2 := encryptAndCompress(t, jsonData2, publicKey)
+	r2 := testRequest(t, ts, http.MethodPost, "/value", bytes.NewBuffer(encryptedData2), headers)
 	defer r2.Body.Close()
 	assert.Equal(t, http.StatusNotFound, r2.StatusCode)
 }
 
 func TestGetListHandler(t *testing.T) {
-	metricService, testConfig, logSugar := testSetup(t)
+	metricService, testConfig, logSugar, privateKey, _ := testSetup(t)
 	mockAudit := &mockAuditLogger{}
 
 	_ = metricService.SetMetric(context.Background(), "M1", 1.0, models.Gauge)
 	_ = metricService.SetMetric(context.Background(), "M2", int64(2), models.Counter)
 
-	ts := httptest.NewServer(Router(logSugar, testConfig, metricService, mockAudit))
+	ts := httptest.NewServer(Router(logSugar, testConfig, metricService, mockAudit, privateKey))
 	defer ts.Close()
 
-	r := testRequest(t, ts, http.MethodGet, "/", nil)
+	r := testRequest(t, ts, http.MethodGet, "/", nil, nil)
 	defer r.Body.Close()
 	assert.Equal(t, http.StatusOK, r.StatusCode)
 	bodyBytes, _ := io.ReadAll(r.Body)
@@ -254,20 +298,20 @@ func TestGetListHandler(t *testing.T) {
 }
 
 func TestPingHandler(t *testing.T) {
-	metricService, testConfig, logSugar := testSetup(t)
+	metricService, testConfig, logSugar, privateKey, _ := testSetup(t)
 	mockAudit := &mockAuditLogger{}
-	ts := httptest.NewServer(Router(logSugar, testConfig, metricService, mockAudit))
+	ts := httptest.NewServer(Router(logSugar, testConfig, metricService, mockAudit, privateKey))
 	defer ts.Close()
 
-	r := testRequest(t, ts, http.MethodGet, "/ping", nil)
+	r := testRequest(t, ts, http.MethodGet, "/ping", nil, nil)
 	defer r.Body.Close()
 	assert.Equal(t, http.StatusOK, r.StatusCode)
 }
 
 func TestBatchUpdateHandler(t *testing.T) {
-	metricService, testConfig, logSugar := testSetup(t)
+	metricService, testConfig, logSugar, privateKey, publicKey := testSetup(t)
 	mockAudit := &mockAuditLogger{}
-	ts := httptest.NewServer(Router(logSugar, testConfig, metricService, mockAudit))
+	ts := httptest.NewServer(Router(logSugar, testConfig, metricService, mockAudit, privateKey))
 	defer ts.Close()
 
 	// Prepare batch payload
@@ -275,7 +319,12 @@ func TestBatchUpdateHandler(t *testing.T) {
 	delta := int64(5)
 	batch := []models.MetricsDTO{{ID: "B1", MType: models.Gauge, Value: &val}, {ID: "B2", MType: models.Counter, Delta: &delta}}
 	data, _ := json.Marshal(batch)
-	r := testRequest(t, ts, http.MethodPost, "/updates", bytes.NewReader(data))
+	// Encrypt and compress the data
+	encryptedData := encryptAndCompress(t, data, publicKey)
+	headers := map[string]string{
+		"Content-Encoding": "gzip",
+	}
+	r := testRequest(t, ts, http.MethodPost, "/updates", bytes.NewReader(encryptedData), headers)
 	defer r.Body.Close()
 	assert.Equal(t, http.StatusOK, r.StatusCode)
 
@@ -288,15 +337,18 @@ func TestBatchUpdateHandler(t *testing.T) {
 	assert.Equal(t, int64(5), m2)
 
 	// Test batch update with invalid JSON
-	r2 := testRequest(t, ts, http.MethodPost, "/updates", bytes.NewReader([]byte(`[{"invalid": json`)))
+	// Encrypt and compress the data
+	invalidData := []byte(`[{"invalid": json`)
+	encryptedInvalidData := encryptAndCompress(t, invalidData, publicKey)
+	r2 := testRequest(t, ts, http.MethodPost, "/updates", bytes.NewReader(encryptedInvalidData), headers)
 	defer r2.Body.Close()
 	assert.Equal(t, http.StatusBadRequest, r2.StatusCode)
 }
 
 func TestUpdateHandlerWithParams(t *testing.T) {
-	metricService, testConfig, logSugar := testSetup(t)
+	metricService, testConfig, logSugar, privateKey, _ := testSetup(t)
 	mockAudit := &mockAuditLogger{}
-	ts := httptest.NewServer(Router(logSugar, testConfig, metricService, mockAudit))
+	ts := httptest.NewServer(Router(logSugar, testConfig, metricService, mockAudit, privateKey))
 	defer ts.Close()
 
 	tests := []struct {
@@ -345,7 +397,7 @@ func TestUpdateHandlerWithParams(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			r := testRequest(t, ts, tt.method, tt.endpoint, nil)
+			r := testRequest(t, ts, tt.method, tt.endpoint, nil, nil)
 			defer r.Body.Close()
 			assert.Equal(t, tt.statusCode, r.StatusCode)
 

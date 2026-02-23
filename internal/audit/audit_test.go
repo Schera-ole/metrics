@@ -1,6 +1,7 @@
 package audit
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -23,7 +24,7 @@ func TestBroadcaster(t *testing.T) {
 	sub2 := make(chan models.AuditEvent, 1)
 
 	// Start the broadcaster
-	go Broadcaster(source, sub1, sub2)
+	go Broadcaster(t.Context(), source, sub1, sub2)
 
 	// Create a test event
 	event := models.AuditEvent{
@@ -38,13 +39,24 @@ func TestBroadcaster(t *testing.T) {
 		close(source)
 	}()
 
-	// Receive from subscribers
-	received1 := <-sub1
-	received2 := <-sub2
+	// Give the broadcaster time to process
+	time.Sleep(100 * time.Millisecond)
 
 	// Check that both subscribers received the same event
-	assert.Equal(t, event, received1)
-	assert.Equal(t, event, received2)
+	// Since the channels are buffered, we can check if events are there
+	select {
+	case received1 := <-sub1:
+		assert.Equal(t, event, received1)
+	default:
+		t.Error("Expected event in sub1 channel, but it was empty")
+	}
+
+	select {
+	case received2 := <-sub2:
+		assert.Equal(t, event, received2)
+	default:
+		t.Error("Expected event in sub2 channel, but it was empty")
+	}
 }
 
 func TestFileSubscriber(t *testing.T) {
@@ -62,8 +74,12 @@ func TestFileSubscriber(t *testing.T) {
 	// Create a channel for events
 	events := make(chan models.AuditEvent)
 
+	// Create context
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
 	// Start the file subscriber in a goroutine
-	go FileSubscriber(events, cfg)
+	go FileSubscriber(ctx, events, cfg)
 
 	// Create a test event
 	event := models.AuditEvent{
@@ -125,8 +141,12 @@ func TestURLSubscriber(t *testing.T) {
 	// Create a channel for events
 	events := make(chan models.AuditEvent)
 
+	// Create context
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
 	// Start the URL subscriber in a goroutine
-	go URLSubscriber(events, cfg)
+	go URLSubscriber(ctx, events, cfg)
 
 	// Create a test event
 	event := models.AuditEvent{
@@ -161,8 +181,12 @@ func TestFileSubscriber_InvalidJSON(t *testing.T) {
 	// Create a channel for events
 	events := make(chan models.AuditEvent)
 
+	// Create context
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
 	// Start the file subscriber in a goroutine
-	go FileSubscriber(events, cfg)
+	go FileSubscriber(ctx, events, cfg)
 
 	// Create a test event with a non-serializable field
 	// This test mainly checks that the subscriber doesn't panic
@@ -198,8 +222,12 @@ func TestURLSubscriber_InvalidJSON(t *testing.T) {
 	// Create a channel for events
 	events := make(chan models.AuditEvent)
 
+	// Create context
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
 	// Start the URL subscriber in a goroutine
-	go URLSubscriber(events, cfg)
+	go URLSubscriber(ctx, events, cfg)
 
 	// Create a test event
 	event := models.AuditEvent{
@@ -225,7 +253,7 @@ func TestBroadcaster_ChannelBlocking(t *testing.T) {
 	sub2 := make(chan models.AuditEvent)
 
 	// Start the broadcaster
-	go Broadcaster(source, sub1, sub2)
+	go Broadcaster(t.Context(), source, sub1, sub2)
 
 	// Create a test event
 	event := models.AuditEvent{
@@ -257,8 +285,12 @@ func TestFileSubscriber_FileError(t *testing.T) {
 	// Create a channel for events
 	events := make(chan models.AuditEvent)
 
+	// Create context
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
 	// Start the file subscriber in a goroutine
-	go FileSubscriber(events, cfg)
+	go FileSubscriber(ctx, events, cfg)
 
 	// Create a test event
 	event := models.AuditEvent{
@@ -286,8 +318,12 @@ func TestURLSubscriber_NetworkError(t *testing.T) {
 	// Create a channel for events
 	events := make(chan models.AuditEvent)
 
+	// Create context
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
 	// Start the URL subscriber in a goroutine
-	go URLSubscriber(events, cfg)
+	go URLSubscriber(ctx, events, cfg)
 
 	// Create a test event
 	event := models.AuditEvent{

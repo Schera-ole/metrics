@@ -6,15 +6,16 @@ package audit
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
-	"net/http"
 	"os"
 	"time"
 
 	"github.com/Schera-ole/metrics/internal/config"
 	models "github.com/Schera-ole/metrics/internal/model"
+	"github.com/hashicorp/go-retryablehttp"
 )
 
 // AuditLogger is an interface for logging audit events.
@@ -60,7 +61,7 @@ type Subscriber struct {
 //
 // It receives events from a source channel and sends them to all provided subscriber channels
 // using select with default case to prevent blocking and goroutine leaks.
-func Broadcaster(source <-chan models.AuditEvent, subs ...chan<- models.AuditEvent) {
+func Broadcaster(ctx context.Context, source <-chan models.AuditEvent, subs ...chan<- models.AuditEvent) {
 	for evt := range source {
 		for _, subChan := range subs {
 			select {
@@ -75,42 +76,70 @@ func Broadcaster(source <-chan models.AuditEvent, subs ...chan<- models.AuditEve
 }
 
 // FileSubscriber writes audit events to a file.
-func FileSubscriber(events <-chan models.AuditEvent, config config.ServerConfig) {
-	for evt := range events {
-		data, err := json.Marshal(evt)
-		if err != nil {
-			fmt.Printf("FileSubscriber: ошибка маршалинга JSON: %v\n", err)
-			continue
+func FileSubscriber(ctx context.Context, events <-chan models.AuditEvent, config config.ServerConfig) {
+	for {
+		select {
+		case <-ctx.Done():
+			// Context cancelled, exit the goroutine
+			return
+		case evt, ok := <-events:
+			if !ok {
+				// Channel closed, exit the goroutine
+				return
+			}
+			data, err := json.Marshal(evt)
+			if err != nil {
+				fmt.Printf("FileSubscriber: ошибка маршалинга JSON: %v\n", err)
+				continue
+			}
+			f, err := os.OpenFile(config.AuditFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+			if err != nil {
+				fmt.Printf("FileSubscriber: не удалось открыть файл %s: %v\n", config.AuditFile, err)
+				continue
+			}
+			// Ensure file is closed even if WriteString fails
+			defer f.Close()
+			_, err = f.WriteString(string(data) + "\n")
+			if err != nil {
+				fmt.Printf("FileSubscriber: ошибка записи в файл: %v\n", err)
+				continue
+			}
+			fmt.Printf("FileSubscriber: событие записано в файл: %s\n", string(data))
 		}
-		f, err := os.OpenFile(config.AuditFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-		if err != nil {
-			fmt.Printf("FileSubscriber: не удалось открыть файл %s: %v\n", config.AuditFile, err)
-			continue
-		}
-		_, err = f.WriteString(string(data) + "\n")
-		if err != nil {
-			fmt.Printf("FileSubscriber: ошибка записи в файл: %v\n", err)
-		}
-		f.Close()
-		fmt.Printf("FileSubscriber: событие записано в файл: %s\n", string(data))
 	}
 }
 
 // URLSubscriber sends audit events to an HTTP endpoint.
-func URLSubscriber(events <-chan models.AuditEvent, config config.ServerConfig) {
-	for evt := range events {
-		data, err := json.Marshal(evt)
-		if err != nil {
-			fmt.Printf("URLSubscriber: ошибка маршалинга JSON: %v\n", err)
-			continue
+func URLSubscriber(ctx context.Context, events <-chan models.AuditEvent, config config.ServerConfig) {
+	for {
+		select {
+		case <-ctx.Done():
+			// Context cancelled, exit the goroutine
+			return
+		case evt, ok := <-events:
+			if !ok {
+				// Channel closed, exit the goroutine
+				return
+			}
+			data, err := json.Marshal(evt)
+			if err != nil {
+				fmt.Printf("URLSubscriber: ошибка маршалинга JSON: %v\n", err)
+				continue
+			}
+
+			// Create retryable HTTP client with default settings
+			retryClient := retryablehttp.NewClient()
+			retryClient.HTTPClient.Timeout = 10 * time.Second
+			client := retryClient.StandardClient() // *http.Client with retry support
+
+			resp, err := client.Post(config.AuditURL, "application/json", bytes.NewBuffer(data))
+			if err != nil {
+				fmt.Printf("URLSubscriber: ошибка отправки запроса на %s: %v\n", config.AuditURL, err)
+				continue
+			}
+			io.Copy(io.Discard, resp.Body)
+			resp.Body.Close()
+			fmt.Printf("URLSubscriber: событие отправлено по URL: %s\n", string(data))
 		}
-		resp, err := http.Post(config.AuditURL, "application/json", bytes.NewBuffer(data))
-		if err != nil {
-			fmt.Printf("URLSubscriber: ошибка отправки запроса на %s: %v\n", config.AuditURL, err)
-			continue
-		}
-		io.Copy(io.Discard, resp.Body)
-		resp.Body.Close()
-		fmt.Printf("URLSubscriber: событие отправлено по URL: %s\n", string(data))
 	}
 }
