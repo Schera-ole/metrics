@@ -47,7 +47,7 @@ func NewAgentConfig() (*AgentConfig, error) {
 		Address:      "localhost:8080",
 		Key:          "",
 		RateLimit:    5,
-		CryptoKey:    "./cmd/agent/public.pem",
+		CryptoKey:    "./cmd/server/public.pem",
 	}
 
 	pollInterval := flag.Int("p", 2, "The frequency of polling metrics from the package")

@@ -41,6 +41,9 @@ type ServerConfig struct {
 
 	// CryptoKey is the path to the file with private key
 	CryptoKey string
+
+	// TrustedSubnet is the trusted subnet for server
+	TrustedSubnet string
 }
 
 type ConfigFile struct {
@@ -50,6 +53,7 @@ type ConfigFile struct {
 	FileStoragePath string `json:"store_file"`
 	DatabaseDSN     string `json:"database_dsn"`
 	CryptoKey       string `json:"crypto_key"`
+	TrustedSubnet   string `json:"trusted_subnet"`
 }
 
 // NewServerConfig creates a new ServerConfig with default values and parses
@@ -66,6 +70,7 @@ func NewServerConfig() (*ServerConfig, error) {
 		AuditFile:       "",
 		AuditURL:        "",
 		CryptoKey:       "./cmd/server/private.pem",
+		TrustedSubnet:   "",
 	}
 
 	address := flag.String("a", config.Address, "address")
@@ -78,6 +83,7 @@ func NewServerConfig() (*ServerConfig, error) {
 	auditURL := flag.String("audit-url", config.AuditURL, "url for audit log")
 	cryptoKey := flag.String("crypto-key", config.CryptoKey, "path to private key")
 	configFile := flag.String("c", "", "path to config file")
+	trustedSubnet := flag.String("t", config.TrustedSubnet, "trusted subnet")
 	flag.Parse()
 	if *configFile != "" {
 		f, err := os.Open(*configFile)
@@ -94,6 +100,7 @@ func NewServerConfig() (*ServerConfig, error) {
 			config.FileStoragePath = configFromFile.FileStoragePath
 			config.DatabaseDSN = configFromFile.DatabaseDSN
 			config.CryptoKey = configFromFile.CryptoKey
+			config.TrustedSubnet = configFromFile.TrustedSubnet
 		} else {
 			fmt.Println("Error during opening file:", err)
 		}
@@ -104,6 +111,7 @@ func NewServerConfig() (*ServerConfig, error) {
 		"DATABASE_DSN":      databaseDSN,
 		"KEY":               key,
 		"CRYPTO_KEY":        cryptoKey,
+		"TRUSTED_SUBNET":    trustedSubnet,
 	}
 
 	for envVar, flag := range envVars {
@@ -140,6 +148,7 @@ func NewServerConfig() (*ServerConfig, error) {
 	config.DatabaseDSN = *databaseDSN
 	config.Key = *key
 	config.CryptoKey = *cryptoKey
+	config.TrustedSubnet = *trustedSubnet
 
 	return config, nil
 }
