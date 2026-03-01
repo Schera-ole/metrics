@@ -15,7 +15,11 @@ import (
 	"time"
 
 	"github.com/Schera-ole/metrics/internal/agent"
+	grpcMetrics "github.com/Schera-ole/metrics/internal/proto"
 	"go.uber.org/zap"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/metadata"
 )
 
 var (
@@ -54,6 +58,7 @@ func main() {
 		logger.Fatal("Failed to get ip address", zap.Error(err))
 	}
 	url := "http://" + agentConfig.Address + "/updates"
+
 	counter := &agent.Counter{Value: 0}
 	jobs := make(chan []agent.Metric, 20)
 
@@ -64,11 +69,26 @@ func main() {
 	// Create WaitGroup to wait for all workers to finish
 	var wg sync.WaitGroup
 
-	for w := 1; w <= agentConfig.RateLimit; w++ {
-		wg.Add(1)
-		go agent.Worker(ctx, client, url, agentConfig.Key, jobs, rsaPublicKey, &wg, ipAddress, logSugar)
+	// GRPC worker
+	if agentConfig.GRPCServerAddress != "" {
+		grpcConn, err := grpc.NewClient(agentConfig.GRPCServerAddress, grpc.WithTransportCredentials(insecure.NewCredentials()))
+		if err != nil {
+			logger.Fatal("Failed to get ip address", zap.Error(err))
+		}
+		defer grpcConn.Close()
+		ctx = metadata.AppendToOutgoingContext(ctx, "x-real-ip", ipAddress)
+		grpcClient := grpcMetrics.NewMetricsClient(grpcConn)
+		for w := 1; w <= agentConfig.RateLimit; w++ {
+			wg.Add(1)
+			go agent.GRPCWorker(ctx, grpcClient, url, jobs, &wg, logSugar)
+		}
+	} else {
+		// REST worker
+		for w := 1; w <= agentConfig.RateLimit; w++ {
+			wg.Add(1)
+			go agent.Worker(ctx, client, url, agentConfig.Key, jobs, rsaPublicKey, &wg, ipAddress, logSugar)
+		}
 	}
-
 	// Goroutine for collecting runtime metrics
 	go func() {
 		ticker := time.NewTicker(time.Duration(agentConfig.PollInterval) * time.Second)

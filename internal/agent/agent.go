@@ -25,6 +25,7 @@ import (
 	"sync"
 	"time"
 
+	grpcMetrics "github.com/Schera-ole/metrics/internal/proto"
 	"github.com/jackc/pgerrcode"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/shirou/gopsutil/v4/cpu"
@@ -269,7 +270,7 @@ func CollectGopsutilMetrics(logSugar *zap.SugaredLogger) []Metric {
 	return metrics
 }
 
-// Worker processes metric batches from the jobs channel.
+// Worker processes metric batches from the http jobs channel.
 func Worker(
 	ctx context.Context,
 	client *http.Client,
@@ -305,6 +306,73 @@ func Worker(
 			return
 		}
 	}
+}
+
+// GRPCWorker processes metric batches from the grpc jobs channel.
+func GRPCWorker(
+	ctx context.Context,
+	client grpcMetrics.MetricsClient,
+	url string,
+	jobs <-chan []Metric,
+	wg *sync.WaitGroup,
+	logSugar *zap.SugaredLogger,
+) {
+	defer wg.Done()
+
+	for {
+		select {
+		case job, ok := <-jobs:
+			if !ok {
+				return // Channel closed
+			}
+			// Prepare grpc message
+			grpcMetricsList := make([]*grpcMetrics.Metric, 0, len(job))
+			for _, m := range job {
+				grpcMetric := grpcMetrics.Metric_builder{
+					Id:   m.Name,
+					Type: getGRPCMType(m.Type),
+				}
+				switch m.Type {
+				case models.Gauge:
+					if val, ok := m.Value.(uint64); ok {
+						grpcMetric.Value = float64(val)
+					} else if val, ok := m.Value.(float64); ok {
+						grpcMetric.Value = val
+					} else if val, ok := m.Value.(uint32); ok {
+						grpcMetric.Value = float64(val)
+					}
+				case models.Counter:
+					if val, ok := m.Value.(int64); ok {
+						grpcMetric.Delta = val
+					}
+				}
+				grpcMetricsList = append(grpcMetricsList, grpcMetric.Build())
+			}
+
+			// Create request with the metrics using builder
+			req := grpcMetrics.UpdateMetricsRequest_builder{
+				Metrics: grpcMetricsList,
+			}.Build()
+			logSugar.Infof("Sending %d metrics to gRPC server", len(grpcMetricsList))
+			// Send to gRPC server
+			_, err := client.UpdateMetrics(ctx, req)
+			if err != nil {
+				logSugar.Errorf("Error sending metrics via gRPC: %v", err)
+			} else {
+				logSugar.Infof("Successfully sent %d metrics to gRPC server", len(grpcMetricsList))
+			}
+		case <-ctx.Done():
+			return
+		}
+	}
+}
+
+// getGRPCMType converts internal metric type to gRPC MType enum.
+func getGRPCMType(mType string) grpcMetrics.Metric_MType {
+	if mType == models.Gauge {
+		return grpcMetrics.Metric_GAUGE
+	}
+	return grpcMetrics.Metric_COUNTER
 }
 
 // LoadPublicKey loads an RSA public key from a PEM file.
