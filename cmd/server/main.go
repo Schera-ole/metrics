@@ -24,7 +24,7 @@ import (
 
 	"github.com/Schera-ole/metrics/internal/audit"
 	"github.com/Schera-ole/metrics/internal/config"
-	grpc_server "github.com/Schera-ole/metrics/internal/grpc"
+	grpcserver "github.com/Schera-ole/metrics/internal/grpc"
 	"github.com/Schera-ole/metrics/internal/handler"
 	"github.com/Schera-ole/metrics/internal/migration"
 	models "github.com/Schera-ole/metrics/internal/model"
@@ -222,13 +222,13 @@ func main() {
 	// Start grpc server
 	var grpcServer *grpc.Server
 	if serverConfig.GRPCServerAddress != "" {
-		metricsServer := grpc_server.NewMetricsServer(metricsService)
+		metricsServer := grpcserver.NewMetricsServer(metricsService)
 		listen, err := net.Listen("tcp", serverConfig.GRPCServerAddress)
 		if err != nil {
 			logSugar.Fatalf("Failed to listen on gRPC address %s: %v", serverConfig.GRPCServerAddress, err)
 		}
 		grpcServer = grpc.NewServer(
-			grpc.UnaryInterceptor(grpc_server.XRequestIPInterceptor(serverConfig.TrustedSubnet)),
+			grpc.UnaryInterceptor(grpcserver.XRequestIPInterceptor(serverConfig.TrustedSubnet)),
 		)
 		pb.RegisterMetricsServer(grpcServer, metricsServer)
 		go func() {
