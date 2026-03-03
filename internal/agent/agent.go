@@ -56,7 +56,7 @@ func CollectMetrics(counter *Counter) []Metric {
 		value := msValue.FieldByName(metric)
 		metrics = append(metrics, Metric{Name: field.Name, Type: models.Gauge, Value: value.Interface()})
 	}
-	counter.Value += 1
+	counter.Value++
 	metrics = append(metrics, Metric{Name: "RandomValue", Type: models.Gauge, Value: mathRand.Float64()})
 	metrics = append(metrics, Metric{Name: "PollCount", Type: models.Counter, Value: counter.Value})
 

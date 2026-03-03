@@ -12,16 +12,16 @@ import (
 
 func XRequestIPInterceptor(trustedSubnet string) grpc.UnaryServerInterceptor {
 	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
-		md, ok := metadata.FromIncomingContext(ctx)
-		if !ok {
-			return nil, status.Error(codes.Internal, "cannot get metadata")
-		}
-		realIPs := md.Get("x-real-ip")
-		if len(realIPs) == 0 || realIPs[0] == "" {
-			return nil, status.Error(codes.InvalidArgument, "missing required header: x-real-ip")
-		}
-		clientIP := realIPs[0]
 		if trustedSubnet != "" {
+			md, ok := metadata.FromIncomingContext(ctx)
+			if !ok {
+				return nil, status.Error(codes.Internal, "cannot get metadata")
+			}
+			realIPs := md.Get("x-real-ip")
+			if len(realIPs) == 0 || realIPs[0] == "" {
+				return nil, status.Error(codes.InvalidArgument, "missing required header: x-real-ip")
+			}
+			clientIP := realIPs[0]
 			if !isIPinSubnet(clientIP, trustedSubnet) {
 				return nil, status.Error(codes.PermissionDenied, "client IP not in trusted subnet")
 			}
