@@ -6,6 +6,7 @@ package middlewareinternal
 
 import (
 	"io"
+	"net"
 	"net/http"
 	"strings"
 	"sync"
@@ -108,4 +109,35 @@ func GzipMiddleware(next http.Handler) http.Handler {
 		gw := &gzipWriter{ResponseWriter: w, Writer: gzw}
 		next.ServeHTTP(gw, r)
 	})
+}
+
+func CheckRealIP(trustedSubnet string) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if trustedSubnet == "" {
+				next.ServeHTTP(w, r)
+				return
+			}
+			clientIP := r.Header.Get("X-Real-IP")
+			_, trustedCIDR, err := net.ParseCIDR(trustedSubnet)
+			if err != nil {
+				http.Error(w, "Invalid trusted subnet configuration", http.StatusInternalServerError)
+				return
+			}
+			if clientIP == "" {
+				http.Error(w, "Missing X-Real-IP header", http.StatusForbidden)
+				return
+			}
+			parsedIP := net.ParseIP(clientIP)
+			if parsedIP == nil {
+				http.Error(w, "Invalid IP address in X-Real-IP header", http.StatusForbidden)
+				return
+			}
+			if !trustedCIDR.Contains(parsedIP) {
+				http.Error(w, "Access denied", http.StatusForbidden)
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
 }

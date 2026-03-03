@@ -16,12 +16,13 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 
+	"github.com/Schera-ole/metrics/internal/agent"
 	models "github.com/Schera-ole/metrics/internal/model"
 )
 
 func TestCollectMetrics(t *testing.T) {
-	counter := &Counter{Value: 0}
-	metrics := collectMetrics(counter)
+	counter := &agent.Counter{Value: 0}
+	metrics := agent.CollectMetrics(counter)
 	require.NotEmpty(t, metrics)
 
 	foundPollCount := false
@@ -67,8 +68,8 @@ func TestSendMetric(t *testing.T) {
 	}))
 	defer server.Close()
 
-	counter := &Counter{Value: 0}
-	metrics := collectMetrics(counter)
+	counter := &agent.Counter{Value: 0}
+	metrics := agent.CollectMetrics(counter)
 
 	// Generate a test RSA key pair
 	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
@@ -84,9 +85,10 @@ func TestSendMetric(t *testing.T) {
 	defer logger.Sync()
 
 	ctx := context.Background()
-	payload, hash, err := prepareMetricsPayload(metrics, key, publicKey)
+	payload, hash, err := agent.PrepareMetricsPayload(metrics, key, publicKey)
 	require.NoError(t, err)
-	err = sendWithRetry(ctx, client, payload, hash, server.URL+"/update", key, logSugar)
+	ipAddr := "127.0.0.1"
+	err = agent.SendWithRetry(ctx, client, payload, hash, server.URL+"/update", key, ipAddr, logSugar)
 	require.NoError(t, err)
 
 	// We should receive exactly one request with all metrics
@@ -137,8 +139,8 @@ func TestSendMetricWithHash(t *testing.T) {
 	}))
 	defer server.Close()
 
-	counter := &Counter{Value: 0}
-	metrics := collectMetrics(counter)
+	counter := &agent.Counter{Value: 0}
+	metrics := agent.CollectMetrics(counter)
 
 	// Generate a test RSA key pair
 	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
@@ -154,9 +156,10 @@ func TestSendMetricWithHash(t *testing.T) {
 	defer logger.Sync()
 
 	ctx := context.Background()
-	payload, hash, err := prepareMetricsPayload(metrics, key, publicKey)
+	payload, hash, err := agent.PrepareMetricsPayload(metrics, key, publicKey)
 	require.NoError(t, err)
-	err = sendWithRetry(ctx, client, payload, hash, server.URL+"/update", key, logSugar)
+	ipAddr := "127.0.0.1"
+	err = agent.SendWithRetry(ctx, client, payload, hash, server.URL+"/update", key, ipAddr, logSugar)
 	require.NoError(t, err)
 
 	// We should receive exactly one request with all metrics

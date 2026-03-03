@@ -41,15 +41,23 @@ type ServerConfig struct {
 
 	// CryptoKey is the path to the file with private key
 	CryptoKey string
+
+	// TrustedSubnet is the trusted subnet for server
+	TrustedSubnet string
+
+	// GRPCServerAddress - grpc server will start on it
+	GRPCServerAddress string
 }
 
 type ConfigFile struct {
-	Address         string `json:"address"`
-	Restore         bool   `json:"restore"`
-	StoreInterval   int    `json:"store_interval"`
-	FileStoragePath string `json:"store_file"`
-	DatabaseDSN     string `json:"database_dsn"`
-	CryptoKey       string `json:"crypto_key"`
+	Address           string `json:"address"`
+	Restore           bool   `json:"restore"`
+	StoreInterval     int    `json:"store_interval"`
+	FileStoragePath   string `json:"store_file"`
+	DatabaseDSN       string `json:"database_dsn"`
+	CryptoKey         string `json:"crypto_key"`
+	TrustedSubnet     string `json:"trusted_subnet"`
+	GRPCServerAddress string `json:"grpc_server_address"`
 }
 
 // NewServerConfig creates a new ServerConfig with default values and parses
@@ -57,15 +65,17 @@ type ConfigFile struct {
 func NewServerConfig() (*ServerConfig, error) {
 	var configFromFile ConfigFile
 	config := &ServerConfig{
-		Address:         "localhost:8080",
-		StoreInterval:   300,
-		FileStoragePath: "./cmd/server/logs",
-		Restore:         false,
-		DatabaseDSN:     "",
-		Key:             "",
-		AuditFile:       "",
-		AuditURL:        "",
-		CryptoKey:       "./cmd/server/private.pem",
+		Address:           "localhost:8080",
+		StoreInterval:     300,
+		FileStoragePath:   "./cmd/server/logs",
+		Restore:           false,
+		DatabaseDSN:       "",
+		Key:               "",
+		AuditFile:         "",
+		AuditURL:          "",
+		CryptoKey:         "./cmd/server/private.pem",
+		TrustedSubnet:     "",
+		GRPCServerAddress: "",
 	}
 
 	address := flag.String("a", config.Address, "address")
@@ -78,6 +88,8 @@ func NewServerConfig() (*ServerConfig, error) {
 	auditURL := flag.String("audit-url", config.AuditURL, "url for audit log")
 	cryptoKey := flag.String("crypto-key", config.CryptoKey, "path to private key")
 	configFile := flag.String("c", "", "path to config file")
+	trustedSubnet := flag.String("t", config.TrustedSubnet, "trusted subnet")
+	grpcServerAddress := flag.String("g", "", "grpc server address")
 	flag.Parse()
 	if *configFile != "" {
 		f, err := os.Open(*configFile)
@@ -94,6 +106,8 @@ func NewServerConfig() (*ServerConfig, error) {
 			config.FileStoragePath = configFromFile.FileStoragePath
 			config.DatabaseDSN = configFromFile.DatabaseDSN
 			config.CryptoKey = configFromFile.CryptoKey
+			config.TrustedSubnet = configFromFile.TrustedSubnet
+			config.GRPCServerAddress = configFromFile.GRPCServerAddress
 		} else {
 			fmt.Println("Error during opening file:", err)
 		}
@@ -104,6 +118,7 @@ func NewServerConfig() (*ServerConfig, error) {
 		"DATABASE_DSN":      databaseDSN,
 		"KEY":               key,
 		"CRYPTO_KEY":        cryptoKey,
+		"TRUSTED_SUBNET":    trustedSubnet,
 	}
 
 	for envVar, flag := range envVars {
@@ -140,6 +155,8 @@ func NewServerConfig() (*ServerConfig, error) {
 	config.DatabaseDSN = *databaseDSN
 	config.Key = *key
 	config.CryptoKey = *cryptoKey
+	config.TrustedSubnet = *trustedSubnet
+	config.GRPCServerAddress = *grpcServerAddress
 
 	return config, nil
 }

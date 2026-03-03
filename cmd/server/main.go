@@ -8,6 +8,7 @@ import (
 	"encoding/pem"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	_ "net/http/pprof"
 	"os"
@@ -19,12 +20,15 @@ import (
 
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"go.uber.org/zap"
+	"google.golang.org/grpc"
 
 	"github.com/Schera-ole/metrics/internal/audit"
 	"github.com/Schera-ole/metrics/internal/config"
+	grpcserver "github.com/Schera-ole/metrics/internal/grpc"
 	"github.com/Schera-ole/metrics/internal/handler"
 	"github.com/Schera-ole/metrics/internal/migration"
 	models "github.com/Schera-ole/metrics/internal/model"
+	pb "github.com/Schera-ole/metrics/internal/proto"
 	"github.com/Schera-ole/metrics/internal/repository"
 	"github.com/Schera-ole/metrics/internal/service"
 )
@@ -191,6 +195,10 @@ func main() {
 		"storeInterval", serverConfig.StoreInterval,
 		"fileStoragePath", serverConfig.FileStoragePath,
 		"databaseDSN", serverConfig.DatabaseDSN,
+		"auditFile", serverConfig.AuditFile,
+		"auditURL", serverConfig.AuditURL,
+		"trustedSubnet", serverConfig.TrustedSubnet,
+		"GRPCServerAddress", serverConfig.GRPCServerAddress,
 	)
 	// create server
 	router := handler.Router(logSugar, serverConfig, metricsService, auditLogger, privateKey)
@@ -211,6 +219,24 @@ func main() {
 		}
 		close(serverErrChan)
 	}()
+	// Start grpc server
+	var grpcServer *grpc.Server
+	if serverConfig.GRPCServerAddress != "" {
+		metricsServer := grpcserver.NewMetricsServer(metricsService)
+		listen, err := net.Listen("tcp", serverConfig.GRPCServerAddress)
+		if err != nil {
+			logSugar.Fatalf("Failed to listen on gRPC address %s: %v", serverConfig.GRPCServerAddress, err)
+		}
+		grpcServer = grpc.NewServer(
+			grpc.UnaryInterceptor(grpcserver.XRequestIPInterceptor(serverConfig.TrustedSubnet)),
+		)
+		pb.RegisterMetricsServer(grpcServer, metricsServer)
+		go func() {
+			if err := grpcServer.Serve(listen); err != nil {
+				logSugar.Fatalf("gRPC server failed: %v", err)
+			}
+		}()
+	}
 
 	// Wait for interrupt signal or server error
 	select {
@@ -229,13 +255,20 @@ func main() {
 		done := make(chan struct{})
 
 		go func() {
-			// Shutdown the server gracefully
+			// Shutdown the HTTP server gracefully
 			if err := srv.Shutdown(shutdownCtx); err != nil {
 				logSugar.Infof("HTTP server Shutdown: %v", err)
 				if err := srv.Close(); err != nil {
 					logSugar.Infof("HTTP server Close: %v", err)
 				}
 			}
+
+			// Shutdown the gRPC server gracefully
+			if grpcServer != nil {
+				grpcServer.GracefulStop()
+				logSugar.Info("gRPC server stopped gracefully")
+			}
+
 			close(done)
 		}()
 

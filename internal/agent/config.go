@@ -28,13 +28,17 @@ type AgentConfig struct {
 
 	// CryptoKey is the path to the file with public key
 	CryptoKey string
+
+	//GrpcServerAddress if present - agent will send updates to it
+	GRPCServerAddress string
 }
 
 type ConfigFile struct {
-	Address      string `json:"address"`
-	RateLimit    int    `json:"rate_limit"`
-	PollInterval int    `json:"poll_interval"`
-	CryptoKey    string `json:"crypto_key"`
+	Address           string `json:"address"`
+	RateLimit         int    `json:"rate_limit"`
+	PollInterval      int    `json:"poll_interval"`
+	CryptoKey         string `json:"crypto_key"`
+	GRPCServerAddress string `json:"grpc_server_address"`
 }
 
 // NewAgentConfig creates a new AgentConfig with default values and parses
@@ -43,11 +47,12 @@ func NewAgentConfig() (*AgentConfig, error) {
 	var configFromFile ConfigFile
 	config := &AgentConfig{
 		// ReportInterval: 10,
-		PollInterval: 2,
-		Address:      "localhost:8080",
-		Key:          "",
-		RateLimit:    5,
-		CryptoKey:    "./cmd/agent/public.pem",
+		PollInterval:      2,
+		Address:           "localhost:8080",
+		Key:               "",
+		RateLimit:         5,
+		CryptoKey:         "./cmd/server/public.pem",
+		GRPCServerAddress: "",
 	}
 
 	pollInterval := flag.Int("p", 2, "The frequency of polling metrics from the package")
@@ -56,6 +61,7 @@ func NewAgentConfig() (*AgentConfig, error) {
 	rateLimit := flag.Int("l", 5, "Rate limit")
 	cryptoKey := flag.String("crypto-key", config.CryptoKey, "path to public key")
 	configFile := flag.String("c", "", "path to config file")
+	grpcServerAddress := flag.String("g", "", "grpc server address")
 	flag.Parse()
 	if *configFile != "" {
 		f, err := os.Open(*configFile)
@@ -70,6 +76,7 @@ func NewAgentConfig() (*AgentConfig, error) {
 			config.PollInterval = configFromFile.PollInterval
 			config.RateLimit = configFromFile.RateLimit
 			config.CryptoKey = configFromFile.CryptoKey
+			config.GRPCServerAddress = configFromFile.GRPCServerAddress
 		} else {
 			fmt.Println("Error during opening file:", err)
 		}
@@ -105,6 +112,7 @@ func NewAgentConfig() (*AgentConfig, error) {
 	config.RateLimit = *rateLimit
 	config.Key = *key
 	config.CryptoKey = *cryptoKey
+	config.GRPCServerAddress = *grpcServerAddress
 
 	return config, nil
 }
